@@ -8,39 +8,39 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Define task statuses OpenClaw may consume
 - [x] Define custom fields used for automation
 - [x] Decide on webhooks, polling, or both
-- [ ] Set up private bridge path behind Tailscale
+- [x] Set up private bridge path behind Tailscale
 
 ## Phase 1: Sync Layer
 
 - [ ] Read ClickUp tasks from a list or folder
 - [x] Normalize tasks into internal job records
-- [ ] Store idempotency keys for every event
-- [ ] Detect status changes that should create or update jobs
-- [ ] Write back sync timestamps and last error values
+- [x] Store idempotency keys for every event
+- [x] Detect status changes that should create or update jobs
+- [x] Write back sync timestamps and last error values
 
 ## Phase 2: Claim and Lease
 
 - [x] Build a workboard queue
-- [ ] Add task claiming with a lease timeout
-- [ ] Prevent duplicate claims
-- [ ] Add heartbeat updates from workers
-- [ ] Reclaim stale tasks when a lease expires
+- [x] Add task claiming with a lease timeout
+- [x] Prevent duplicate claims
+- [x] Add heartbeat updates from workers
+- [x] Reclaim stale tasks when a lease expires
 
 ## Phase 3: Execution Wrapper
 
-- [ ] Launch bounded worker runs
-- [ ] Pass task payload snapshots into the worker
-- [ ] Track retry counts
+- [x] Launch bounded worker runs
+- [x] Pass task payload snapshots into the worker
+- [x] Track retry counts
 - [ ] Capture logs and structured progress events
 - [ ] Support graceful cancellation and failure reporting
 
 ## Phase 4: Reporting
 
 - [x] Post a start comment to the ClickUp task
-- [ ] Post milestone comments during execution
-- [ ] Post a completion summary
-- [ ] Post error summaries for failures and blocked work
-- [ ] Update ClickUp status and custom fields on every terminal outcome
+- [x] Post milestone comments during execution
+- [x] Post a completion summary
+- [x] Post error summaries for failures and blocked work
+- [x] Update ClickUp status and custom fields on every terminal outcome
 
 ## Phase 5: Artifact Linking
 
@@ -80,4 +80,4 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Add ClickUp API client basics
 - [x] Add the first webhook endpoint
 - [x] Add state schema for workboard jobs
-- [ ] Add an end-to-end claim/report flow
+- [x] Add an end-to-end claim/report flow

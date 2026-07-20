@@ -1,7 +1,21 @@
 import Fastify from "fastify";
+import { z } from "zod";
 
 import { loadConfig } from "./config.js";
 import { createBridgeServices } from "./services.js";
+
+const claimNextSchema = z.object({
+  leaseSeconds: z.number().int().positive().optional(),
+});
+
+const heartbeatSchema = z.object({
+  leaseSeconds: z.number().int().positive().optional(),
+});
+
+const completeSchema = z.object({
+  outcome: z.enum(["succeeded", "failed", "blocked"]),
+  summary: z.string().min(1),
+});
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -17,6 +31,51 @@ async function main(): Promise<void> {
     const result = await services.ingestWebhook(request.body);
     return reply.code(202).send(result);
   });
+
+  app.post("/workboard/claim-next", async (request, reply) => {
+    const input = claimNextSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const result = await services.claimNextJob(input.data);
+    if (result === null) {
+      return reply.code(204).send();
+    }
+
+    return reply.code(201).send(result);
+  });
+
+  app.post("/workboard/:taskId/heartbeat", async (request, reply) => {
+    const input = heartbeatSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.heartbeatJob(taskId, input.data);
+    if (result === null) {
+      return reply.code(404).send({ error: "claim not found" });
+    }
+
+    return reply.send(result);
+  });
+
+  app.post("/workboard/:taskId/complete", async (request, reply) => {
+    const input = completeSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.completeJob(taskId, input.data);
+    return reply.send(result);
+  });
+
+  app.get("/workboard/jobs", async () => ({
+    jobs: services.listJobs(),
+    claims: services.workboard.listClaims(),
+  }));
 
   const port = Number(config.PORT);
   await app.listen({ host: config.HOST, port });

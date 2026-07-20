@@ -4,6 +4,16 @@ export function createClickUpClient(options) {
         Authorization: options.token,
         "Content-Type": "application/json",
     };
+    async function updateTask(taskId, body) {
+        const response = await fetch(`${baseUrl}/task/${taskId}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to update ClickUp task ${taskId}: ${response.status}`);
+        }
+    }
     return {
         async getTask(taskId) {
             const response = await fetch(`${baseUrl}/task/${taskId}`, { headers });
@@ -32,14 +42,20 @@ export function createClickUpClient(options) {
             }
         },
         async updateTaskStatus(taskId, status) {
-            const response = await fetch(`${baseUrl}/task/${taskId}`, {
-                method: "PUT",
-                headers,
-                body: JSON.stringify({ status }),
-            });
-            if (!response.ok) {
-                throw new Error(`Failed to update ClickUp task ${taskId}: ${response.status}`);
+            await updateTask(taskId, { status });
+        },
+        async updateTaskMetadata(taskId, input) {
+            const body = {};
+            if (input.status !== undefined) {
+                body.status = input.status;
             }
+            if (input.customFields !== undefined) {
+                body.custom_fields = Object.entries(input.customFields).map(([id, value]) => ({
+                    id,
+                    value,
+                }));
+            }
+            await updateTask(taskId, body);
         },
     };
 }

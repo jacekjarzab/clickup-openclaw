@@ -56,7 +56,19 @@ export const claimRecordSchema = z.object({
   taskId: z.string().min(1),
   runId: z.string().min(1),
   workboardId: z.string().min(1),
+  leaseStartedAt: z.string().min(1),
   leaseExpiresAt: z.string().min(1),
+  leaseSeconds: z.number().int().positive(),
 });
 
 export type ClaimRecord = z.infer<typeof claimRecordSchema>;
+
+export const idempotencyRecordSchema = z.object({
+  key: z.string().min(1),
+  taskId: z.string().min(1),
+  event: z.string().min(1),
+  firstSeenAt: z.string().min(1),
+  lastSeenAt: z.string().min(1),
+});
+
+export type IdempotencyRecord = z.infer<typeof idempotencyRecordSchema>;
