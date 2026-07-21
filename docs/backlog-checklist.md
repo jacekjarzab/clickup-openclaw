@@ -63,7 +63,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Add manual claim and release
 - [x] Add pause and resume controls
 - [ ] Add a force-review path
-- [ ] Add a requeue path
+- [x] Add a requeue path
 - [ ] Add a mark-blocked path with reason text
 
 ## Phase 8: Quality and Scale

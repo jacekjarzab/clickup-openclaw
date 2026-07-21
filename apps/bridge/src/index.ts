@@ -101,6 +101,16 @@ async function main(): Promise<void> {
     return reply.send(result);
   });
 
+  app.post("/workboard/:taskId/requeue", async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.requeueJob(taskId);
+    if (result === null) {
+      return reply.code(404).send({ error: "job not found" });
+    }
+
+    return reply.send(result);
+  });
+
   app.post("/control/pause", async () => services.pauseWork());
 
   app.post("/control/resume", async () => services.resumeWork());

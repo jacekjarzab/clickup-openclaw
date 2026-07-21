@@ -367,6 +367,16 @@ export function createBridgeServices(config: BridgeConfig) {
     return { taskId, released: true, requeued: input?.requeue === true };
   }
 
+  async function requeueJob(taskId: string) {
+    const result = await releaseJob(taskId, { requeue: true });
+    if (result === null) {
+      return null;
+    }
+
+    logger.info("job requeued", { taskId });
+    return result;
+  }
+
   function pauseWork(): { paused: true } {
     paused = true;
     logger.warn("bridge paused");
@@ -635,6 +645,7 @@ export function createBridgeServices(config: BridgeConfig) {
     claimNextJob,
     manualClaimJob,
     releaseJob,
+    requeueJob,
     pauseWork,
     resumeWork,
     getControlState,

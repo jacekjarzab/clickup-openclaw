@@ -295,3 +295,43 @@ test("bridge pause blocks automatic claim and manual claim/release still work", 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("bridge requeue re-adds a released task to the queue", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-5",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const claim = await services.manualClaimJob("task-5");
+    assert.ok(claim);
+    assert.equal(services.workboard.listClaims().length, 1);
+
+    const requeue = await services.requeueJob("task-5");
+    assert.deepEqual(requeue, {
+      taskId: "task-5",
+      released: true,
+      requeued: true,
+    });
+    assert.equal(services.workboard.listClaims().length, 0);
+    assert.equal(services.getMetricsSnapshot().queueDepth, 1);
+
+    const nextClaim = await services.claimNextJob();
+    assert.ok(nextClaim);
+    assert.equal(nextClaim?.taskId, "task-5");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
