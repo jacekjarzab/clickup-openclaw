@@ -13,6 +13,7 @@ const envSchema = z.object({
   ARTIFACT_URL: z.string().min(1).optional(),
   DOCS_URL: z.string().min(1).optional(),
   DESIGN_URL: z.string().min(1).optional(),
+  HEARTBEAT_MONITOR_INTERVAL_MS: z.string().optional(),
   PORT: z.string().default("8787"),
   HOST: z.string().default("0.0.0.0"),
 });

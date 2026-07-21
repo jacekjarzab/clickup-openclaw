@@ -63,6 +63,13 @@ function buildArtifactComment(summary: string, links: ArtifactLinks): string {
   return lines.join("\n");
 }
 
+function buildHeartbeatComment(taskId: string, leaseExpiresAt: string): string {
+  return [
+    `OpenClaw detected a missed heartbeat for task ${taskId}.`,
+    `The lease expired at ${leaseExpiresAt}, so the task was requeued for another attempt.`,
+  ].join("\n");
+}
+
 export function createBridgeServices(config: BridgeConfig) {
   const logger = createLogger("bridge");
   const state = new InMemoryStateStore();
@@ -72,6 +79,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const artifactUrl = config.ARTIFACT_URL ?? config.CLICKUP_ARTIFACT_URL;
   const docsUrl = config.DOCS_URL ?? config.CLICKUP_DOCS_URL;
   const designUrl = config.DESIGN_URL ?? config.CLICKUP_DESIGN_URL;
+  const heartbeatMonitorIntervalMs = Number(config.HEARTBEAT_MONITOR_INTERVAL_MS ?? "60000");
   const artifactLinks: ArtifactLinks = {};
   if (repoUrl !== undefined) {
     artifactLinks.repoUrl = repoUrl;
@@ -234,6 +242,59 @@ export function createBridgeServices(config: BridgeConfig) {
     };
   }
 
+  async function monitorHeartbeats(input?: { now?: string | undefined }) {
+    const now = input?.now ?? nowIso();
+    const reclaimed = workboard.reclaimExpired(now);
+    const notified: Array<{ taskId: string; reason: string }> = [];
+
+    for (const item of reclaimed) {
+      const current = state.getJob(item.taskId);
+      const leaseExpiresAt = current?.claim?.leaseExpiresAt;
+      const reason = leaseExpiresAt
+        ? `Lease expired at ${leaseExpiresAt} and task was requeued.`
+        : "Lease expired and task was requeued.";
+
+      state.mergeJob(item.taskId, {
+        state: "reclaimed",
+        claim: undefined,
+        lastError: reason,
+        updatedAt: now,
+      });
+
+      if (clickup !== undefined) {
+        try {
+          await clickup.postTaskComment(item.taskId, buildHeartbeatComment(item.taskId, leaseExpiresAt ?? now));
+          await clickup.updateTaskMetadata(item.taskId, {
+            status: "ready for openclaw",
+            customFields: {
+              automation_state: "candidate",
+              last_sync_at: now,
+              last_error: reason,
+              ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
+              ...(prUrl === undefined ? {} : { pr_url: prUrl }),
+              ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
+              ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
+              ...(designUrl === undefined ? {} : { design_url: designUrl }),
+            },
+          });
+        } catch (error) {
+          logger.warn("failed to report reclaimed heartbeat", {
+            taskId: item.taskId,
+            error: String(error),
+          });
+        }
+      }
+
+      logger.warn("job reclaimed after missed heartbeat", {
+        taskId: item.taskId,
+        leaseExpiresAt: leaseExpiresAt ?? null,
+      });
+      notified.push({ taskId: item.taskId, reason });
+    }
+
+    return { now, reclaimed, notified };
+  }
+
   async function heartbeatJob(taskId: string, input?: { leaseSeconds?: number | undefined }) {
     const current = workboard.getClaim(taskId);
     if (current === undefined) {
@@ -363,6 +424,8 @@ export function createBridgeServices(config: BridgeConfig) {
     heartbeatJob,
     recordWorkerEvent,
     completeJob,
+    monitorHeartbeats,
+    heartbeatMonitorIntervalMs,
     listJobs: () => state.listJobs(),
   };
 }

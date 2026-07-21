@@ -54,7 +54,7 @@ This is the living build checklist. Update it as we complete items and discover 
 
 - [x] Add retry policy for transient API failures
 - [x] Add dead-letter handling for repeated failures
-- [ ] Add heartbeat monitoring
+- [x] Add heartbeat monitoring
 - [ ] Add alerting for crashes and queue stalls
 - [ ] Add visibility into throughput and latency
 

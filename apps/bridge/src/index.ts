@@ -12,6 +12,13 @@ const heartbeatSchema = z.object({
   leaseSeconds: z.number().int().positive().optional(),
 });
 
+const monitorHeartbeatsSchema = z
+  .object({
+    now: z.string().min(1).optional(),
+  })
+  .optional()
+  .default({});
+
 const workerEventSchema = z.object({
   taskId: z.string().min(1),
   runId: z.string().min(1),
@@ -73,6 +80,16 @@ async function main(): Promise<void> {
     return reply.send(result);
   });
 
+  app.post("/workboard/heartbeat-monitor", async (request, reply) => {
+    const input = monitorHeartbeatsSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const result = await services.monitorHeartbeats(input.data);
+    return reply.send(result);
+  });
+
   app.post("/workboard/:taskId/events", async (request, reply) => {
     const input = workerEventSchema.safeParse(request.body);
     if (!input.success) {
@@ -107,6 +124,16 @@ async function main(): Promise<void> {
   const port = Number(config.PORT);
   await app.listen({ host: config.HOST, port });
   services.logger.info("bridge started", { host: config.HOST, port });
+
+  if (Number.isFinite(services.heartbeatMonitorIntervalMs) && services.heartbeatMonitorIntervalMs > 0) {
+    const interval = setInterval(() => {
+      void services.monitorHeartbeats().catch((error: unknown) => {
+        services.logger.warn("heartbeat monitor failed", { error: String(error) });
+      });
+    }, services.heartbeatMonitorIntervalMs);
+
+    interval.unref();
+  }
 }
 
 void main().catch((error: unknown) => {
