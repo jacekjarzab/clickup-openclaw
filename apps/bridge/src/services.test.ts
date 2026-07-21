@@ -202,3 +202,47 @@ test("bridge heartbeat monitoring reclaims expired claims and writes back a warn
     globalThis.fetch = originalFetch;
   }
 });
+
+test("bridge metrics snapshot tracks queue depth, claims, and throughput", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-3",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const beforeClaim = services.getMetricsSnapshot({ now: "2026-07-21T00:00:00.000Z" });
+    assert.equal(beforeClaim.queueDepth, 1);
+    assert.equal(beforeClaim.activeClaims, 0);
+
+    const claim = await services.claimNextJob({ leaseSeconds: 30 });
+    assert.ok(claim);
+
+    const duringClaim = services.getMetricsSnapshot({ now: claim.leaseExpiresAt });
+    assert.equal(duringClaim.activeClaims, 1);
+    assert.equal(duringClaim.jobCounts.leased, 1);
+
+    await services.completeJob("task-3", {
+      outcome: "succeeded",
+      summary: "Finished the task",
+    });
+
+    const afterComplete = services.getMetricsSnapshot({ now: claim.leaseExpiresAt });
+    assert.equal(afterComplete.throughput.terminalJobs, 1);
+    assert.equal(afterComplete.jobCounts.succeeded, 1);
+    assert.ok(afterComplete.latency.averageClaimToTerminalMs >= 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

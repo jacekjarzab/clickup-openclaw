@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   app.get("/healthz", async () => ({
     ok: true,
     hasClickUpToken: services.clickup !== undefined,
+    metrics: services.getMetricsSnapshot(),
   }));
 
   app.post("/clickup/webhook", async (request, reply) => {
@@ -120,6 +121,8 @@ async function main(): Promise<void> {
     jobs: services.listJobs(),
     claims: services.workboard.listClaims(),
   }));
+
+  app.get("/workboard/metrics", async () => services.getMetricsSnapshot());
 
   const port = Number(config.PORT);
   await app.listen({ host: config.HOST, port });

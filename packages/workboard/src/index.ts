@@ -87,4 +87,8 @@ export class InMemoryWorkboard {
   listClaims(): ClaimRecord[] {
     return [...this.claims.values()];
   }
+
+  listQueuedItems(): WorkItem[] {
+    return [...this.queue];
+  }
 }

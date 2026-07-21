@@ -14,6 +14,7 @@ const envSchema = z.object({
   DOCS_URL: z.string().min(1).optional(),
   DESIGN_URL: z.string().min(1).optional(),
   HEARTBEAT_MONITOR_INTERVAL_MS: z.string().optional(),
+  QUEUE_STALL_ALERT_MS: z.string().optional(),
   PORT: z.string().default("8787"),
   HOST: z.string().default("0.0.0.0"),
 });

@@ -70,6 +70,15 @@ function buildHeartbeatComment(taskId: string, leaseExpiresAt: string): string {
   ].join("\n");
 }
 
+function toNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export function createBridgeServices(config: BridgeConfig) {
   const logger = createLogger("bridge");
   const state = new InMemoryStateStore();
@@ -80,6 +89,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const docsUrl = config.DOCS_URL ?? config.CLICKUP_DOCS_URL;
   const designUrl = config.DESIGN_URL ?? config.CLICKUP_DESIGN_URL;
   const heartbeatMonitorIntervalMs = Number(config.HEARTBEAT_MONITOR_INTERVAL_MS ?? "60000");
+  const queueStallAlertMs = toNumber(config.QUEUE_STALL_ALERT_MS, 10 * 60 * 1000);
   const artifactLinks: ArtifactLinks = {};
   if (repoUrl !== undefined) {
     artifactLinks.repoUrl = repoUrl;
@@ -193,6 +203,7 @@ export function createBridgeServices(config: BridgeConfig) {
     state.mergeJob(next.taskId, {
       state: "leased",
       claim,
+      claimedAt: now,
       retryCount: (state.getJob(next.taskId)?.retryCount ?? 0) + 1,
       updatedAt: now,
     });
@@ -220,6 +231,8 @@ export function createBridgeServices(config: BridgeConfig) {
       state.mergeJob(next.taskId, {
         state: "deadLettered",
         claim: undefined,
+        outcome: "deadLettered",
+        terminalAt: nowIso(),
         lastError: reason,
         deadLetteredAt: nowIso(),
         deadLetterReason: reason,
@@ -292,7 +305,74 @@ export function createBridgeServices(config: BridgeConfig) {
       notified.push({ taskId: item.taskId, reason });
     }
 
+    const queuedItems = workboard.listQueuedItems();
+    const queueAgeMs = queuedItems.reduce((oldest, item) => {
+      const ageMs = Date.parse(now) - Date.parse(item.requestedAt);
+      return Math.max(oldest, Number.isFinite(ageMs) ? ageMs : 0);
+    }, 0);
+    const staleClaims = workboard.listClaims().filter((claim) => claim.leaseExpiresAt <= now);
+
+    if (staleClaims.length > 0 || queueAgeMs >= queueStallAlertMs) {
+      logger.error("queue stall detected", {
+        queueDepth: queuedItems.length,
+        staleClaims: staleClaims.length,
+        queueAgeMs,
+        queueStallAlertMs,
+      });
+    }
+
     return { now, reclaimed, notified };
+  }
+
+  function getMetricsSnapshot(input?: { now?: string | undefined }) {
+    const now = input?.now ?? nowIso();
+    const jobs = state.listJobs();
+    const claims = workboard.listClaims();
+    const queuedItems = workboard.listQueuedItems();
+
+    const jobCounts = jobs.reduce<Record<string, number>>((counts, job) => {
+      counts[job.state] = (counts[job.state] ?? 0) + 1;
+      return counts;
+    }, {});
+
+    const terminalJobs = jobs.filter((job) => job.terminalAt !== undefined && job.claimedAt !== undefined);
+    const averageClaimToTerminalMs =
+      terminalJobs.length === 0
+        ? 0
+        : Math.round(
+            terminalJobs.reduce((sum, job) => {
+              return sum + (Date.parse(job.terminalAt ?? now) - Date.parse(job.claimedAt ?? now));
+            }, 0) / terminalJobs.length,
+          );
+
+    const oldestQueuedAgeMs =
+      queuedItems.length === 0
+        ? 0
+        : Math.max(
+            ...queuedItems.map((item) => {
+              const ageMs = Date.parse(now) - Date.parse(item.requestedAt);
+              return Number.isFinite(ageMs) ? ageMs : 0;
+            }),
+          );
+
+    return {
+      now,
+      queueDepth: queuedItems.length,
+      activeClaims: claims.length,
+      staleClaims: claims.filter((claim) => claim.leaseExpiresAt <= now).length,
+      jobCounts,
+      throughput: {
+        terminalJobs: terminalJobs.length,
+        deadLetteredJobs: jobs.filter((job) => job.outcome === "deadLettered").length,
+      },
+      latency: {
+        averageClaimToTerminalMs,
+        oldestQueuedAgeMs,
+      },
+      thresholds: {
+        queueStallAlertMs,
+      },
+    };
   }
 
   async function heartbeatJob(taskId: string, input?: { leaseSeconds?: number | undefined }) {
@@ -426,6 +506,8 @@ export function createBridgeServices(config: BridgeConfig) {
     completeJob,
     monitorHeartbeats,
     heartbeatMonitorIntervalMs,
+    queueStallAlertMs,
+    getMetricsSnapshot,
     listJobs: () => state.listJobs(),
   };
 }
