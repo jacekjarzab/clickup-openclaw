@@ -43,6 +43,7 @@ export function createClickUpClient(options: ClickUpClientOptions) {
         custom_fields?: Array<{ id: string; value?: unknown }>;
       };
       const repoUrlField = body.custom_fields?.find((field) => field.id === "repo_url");
+      const prUrlField = body.custom_fields?.find((field) => field.id === "pr_url");
 
       return {
         id: body.id,
@@ -52,6 +53,7 @@ export function createClickUpClient(options: ClickUpClientOptions) {
         priority: body.priority,
         description: body.description,
         repoUrl: typeof repoUrlField?.value === "string" ? repoUrlField.value : undefined,
+        prUrl: typeof prUrlField?.value === "string" ? prUrlField.value : undefined,
         tags: body.tags?.map((tag) => tag.name) ?? [],
       };
     },

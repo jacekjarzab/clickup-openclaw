@@ -43,6 +43,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const state = new InMemoryStateStore();
   const workboard = new InMemoryWorkboard();
   const repoUrl = resolveRepoUrl(config);
+  const prUrl = config.PR_URL ?? config.CLICKUP_PR_URL;
   const clickup =
     config.CLICKUP_API_TOKEN === undefined
       ? undefined
@@ -82,17 +83,18 @@ export function createBridgeServices(config: BridgeConfig) {
     }
 
     state.upsertJob({
-      task: {
-        id: event.taskId,
-        name: event.taskId,
-        status: event.status ?? "unknown",
-        listId: event.listId,
-        repoUrl,
-        tags: [],
-      },
-      state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
-      claim: undefined,
-      idempotencyKey,
+        task: {
+          id: event.taskId,
+          name: event.taskId,
+          status: event.status ?? "unknown",
+          listId: event.listId,
+          repoUrl,
+          prUrl,
+          tags: [],
+        },
+        state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
+        claim: undefined,
+        idempotencyKey,
       retryCount: 0,
       lastError: undefined,
       lastEventAt: receivedAt,
@@ -150,6 +152,7 @@ export function createBridgeServices(config: BridgeConfig) {
           automation_state: "claimed",
           last_sync_at: now,
           ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
+          ...(prUrl === undefined ? {} : { pr_url: prUrl }),
         },
       });
     }
@@ -255,6 +258,7 @@ export function createBridgeServices(config: BridgeConfig) {
           run_id: claim?.runId ?? current.claim?.runId ?? "",
           workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
           ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
+          ...(prUrl === undefined ? {} : { pr_url: prUrl }),
         },
       });
     }

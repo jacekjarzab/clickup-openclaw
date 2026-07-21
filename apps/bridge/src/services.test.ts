@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createBridgeServices } from "./services.js";
 
-test("bridge write-back includes repo_url on claim and completion", async () => {
+test("bridge write-back includes repo_url and pr_url on claim and completion", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
 
@@ -13,13 +13,14 @@ test("bridge write-back includes repo_url on claim and completion", async () => 
   }) as typeof fetch;
 
   try {
-    const services = createBridgeServices({
-      CLICKUP_API_TOKEN: "token",
-      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
-      REPO_URL: "git+https://github.com/acme/widgets.git",
-      PORT: "8787",
-      HOST: "0.0.0.0",
-    });
+      const services = createBridgeServices({
+        CLICKUP_API_TOKEN: "token",
+        CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+        REPO_URL: "git+https://github.com/acme/widgets.git",
+        PR_URL: "https://github.com/acme/widgets/pull/42",
+        PORT: "8787",
+        HOST: "0.0.0.0",
+      });
 
     await services.ingestWebhook({
       event: "taskUpdated",
@@ -61,10 +62,24 @@ test("bridge write-back includes repo_url on claim and completion", async () => 
       },
     );
     assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "pr_url"),
+      {
+        id: "pr_url",
+        value: "https://github.com/acme/widgets/pull/42",
+      },
+    );
+    assert.deepEqual(
       secondUpdateBody.custom_fields?.find((field) => field.id === "repo_url"),
       {
         id: "repo_url",
         value: "https://github.com/acme/widgets",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "pr_url"),
+      {
+        id: "pr_url",
+        value: "https://github.com/acme/widgets/pull/42",
       },
     );
   } finally {

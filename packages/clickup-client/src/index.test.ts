@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createClickUpClient } from "./index.js";
 
-test("getTask maps repo_url custom field and omits it when absent", async () => {
+test("getTask maps repo_url and pr_url custom fields and omits them when absent", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
 
@@ -20,7 +20,10 @@ test("getTask maps repo_url custom field and omits it when absent", async () => 
         priority: "high",
         description: "desc",
         tags: [{ name: "ops" }],
-        custom_fields: [{ id: "repo_url", value: "https://github.com/acme/widgets" }],
+        custom_fields: [
+          { id: "repo_url", value: "https://github.com/acme/widgets" },
+          { id: "pr_url", value: "https://github.com/acme/widgets/pull/42" },
+        ],
       }),
     } as Response;
   }) as typeof fetch;
@@ -32,6 +35,7 @@ test("getTask maps repo_url custom field and omits it when absent", async () => 
     assert.equal(requests.length, 1);
     assert.equal(requests[0]?.url, "https://api.clickup.com/api/v2/task/task-1");
     assert.equal(task.repoUrl, "https://github.com/acme/widgets");
+    assert.equal(task.prUrl, "https://github.com/acme/widgets/pull/42");
     assert.deepEqual(task.tags, ["ops"]);
 
     globalThis.fetch = (async () => {
@@ -48,6 +52,7 @@ test("getTask maps repo_url custom field and omits it when absent", async () => 
 
     const withoutRepo = await client.getTask("task-2");
     assert.equal(withoutRepo.repoUrl, undefined);
+    assert.equal(withoutRepo.prUrl, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }
