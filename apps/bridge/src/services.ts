@@ -189,22 +189,37 @@ export function createBridgeServices(config: BridgeConfig) {
       updatedAt: now,
     });
 
-    if (clickup !== undefined) {
-      await clickup.postTaskComment(next.taskId, "Claimed by OpenClaw, starting work.");
-      await clickup.updateTaskMetadata(next.taskId, {
-        status: "in progress",
-        customFields: {
-          run_id: runId,
-          workboard_id: claim.workboardId,
-          automation_state: "claimed",
-          last_sync_at: now,
-          ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
-          ...(prUrl === undefined ? {} : { pr_url: prUrl }),
-          ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
-          ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
-          ...(designUrl === undefined ? {} : { design_url: designUrl }),
-        },
+    try {
+      if (clickup !== undefined) {
+        await clickup.postTaskComment(next.taskId, "Claimed by OpenClaw, starting work.");
+        await clickup.updateTaskMetadata(next.taskId, {
+          status: "in progress",
+          customFields: {
+            run_id: runId,
+            workboard_id: claim.workboardId,
+            automation_state: "claimed",
+            last_sync_at: now,
+            ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
+            ...(prUrl === undefined ? {} : { pr_url: prUrl }),
+            ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
+            ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
+            ...(designUrl === undefined ? {} : { design_url: designUrl }),
+          },
+        });
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      state.mergeJob(next.taskId, {
+        state: "deadLettered",
+        claim: undefined,
+        lastError: reason,
+        deadLetteredAt: nowIso(),
+        deadLetterReason: reason,
+        updatedAt: nowIso(),
       });
+      workboard.release(next.taskId);
+      logger.error("job dead-lettered during claim write-back", { taskId: next.taskId, reason });
+      throw error;
     }
 
     logger.info("job claimed", { taskId: next.taskId, runId });
@@ -287,33 +302,47 @@ export function createBridgeServices(config: BridgeConfig) {
       updatedAt: completedAt,
     });
 
-    if (clickup !== undefined) {
-      await clickup.postTaskComment(taskId, buildArtifactComment(input.summary, artifactLinks));
-      await clickup.updateTaskMetadata(taskId, {
-        status:
-          input.outcome === "succeeded"
-            ? "done"
-            : input.outcome === "blocked"
-              ? "blocked"
-              : "failed",
-        customFields: {
-          automation_state:
+    try {
+      if (clickup !== undefined) {
+        await clickup.postTaskComment(taskId, buildArtifactComment(input.summary, artifactLinks));
+        await clickup.updateTaskMetadata(taskId, {
+          status:
             input.outcome === "succeeded"
               ? "done"
               : input.outcome === "blocked"
                 ? "blocked"
-                : "manual",
-          last_sync_at: completedAt,
-          last_error: input.outcome === "succeeded" ? "" : input.summary,
-          run_id: claim?.runId ?? current.claim?.runId ?? "",
-          workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
-          ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
-          ...(prUrl === undefined ? {} : { pr_url: prUrl }),
-          ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
-          ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
-          ...(designUrl === undefined ? {} : { design_url: designUrl }),
-        },
+                : "failed",
+          customFields: {
+            automation_state:
+              input.outcome === "succeeded"
+                ? "done"
+                : input.outcome === "blocked"
+                  ? "blocked"
+                  : "manual",
+            last_sync_at: completedAt,
+            last_error: input.outcome === "succeeded" ? "" : input.summary,
+            run_id: claim?.runId ?? current.claim?.runId ?? "",
+            workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
+            ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
+            ...(prUrl === undefined ? {} : { pr_url: prUrl }),
+            ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
+            ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
+            ...(designUrl === undefined ? {} : { design_url: designUrl }),
+          },
+        });
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      state.mergeJob(taskId, {
+        state: "deadLettered",
+        claim: undefined,
+        lastError: reason,
+        deadLetteredAt: nowIso(),
+        deadLetterReason: reason,
+        updatedAt: nowIso(),
       });
+      logger.error("job dead-lettered during completion write-back", { taskId, reason });
+      throw error;
     }
 
     logger.info("job completed", { taskId, outcome: input.outcome });

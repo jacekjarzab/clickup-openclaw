@@ -16,6 +16,8 @@ export type JobRecord = {
   lastEventAt: string | undefined;
   updatedAt: string;
   events: WorkerEvent[];
+  deadLetteredAt?: string | undefined;
+  deadLetterReason?: string | undefined;
 };
 
 export type JobPatch = {
@@ -28,6 +30,8 @@ export type JobPatch = {
   lastEventAt?: string | undefined;
   updatedAt?: string | undefined;
   events?: WorkerEvent[] | undefined;
+  deadLetteredAt?: string | undefined;
+  deadLetterReason?: string | undefined;
 };
 
 export class InMemoryStateStore {
@@ -75,6 +79,12 @@ export class InMemoryStateStore {
     }
     if ("events" in patch && patch.events !== undefined) {
       next.events = patch.events.slice();
+    }
+    if ("deadLetteredAt" in patch) {
+      next.deadLetteredAt = patch.deadLetteredAt;
+    }
+    if ("deadLetterReason" in patch) {
+      next.deadLetterReason = patch.deadLetterReason;
     }
 
     this.jobs.set(taskId, next);

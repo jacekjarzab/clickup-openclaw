@@ -23,6 +23,7 @@ export const workboardStates = [
   "succeeded",
   "failed",
   "reclaimed",
+  "deadLettered",
 ] as const;
 
 export type WorkboardState = (typeof workboardStates)[number];

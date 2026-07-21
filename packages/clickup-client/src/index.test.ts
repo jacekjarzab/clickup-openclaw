@@ -66,3 +66,50 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, and design_url cust
     globalThis.fetch = originalFetch;
   }
 });
+
+test("retry policy retries transient ClickUp failures", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+  let attempts = 0;
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    attempts += 1;
+
+    if (attempts === 1) {
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+      } as Response;
+    }
+
+    return {
+      ok: true,
+      json: async () => ({
+        id: "task-3",
+        name: "Build thing",
+        status: { status: "ready for openclaw" },
+        tags: [],
+      }),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const client = createClickUpClient({
+      token: "token",
+      retry: {
+        maxAttempts: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+      },
+    });
+
+    const task = await client.getTask("task-3");
+
+    assert.equal(requests.length, 2);
+    assert.equal(task.id, "task-3");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
