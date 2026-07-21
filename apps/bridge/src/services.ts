@@ -38,6 +38,31 @@ function isEligibleForOpenClaw(status?: string): boolean {
   return status?.trim().toLowerCase() === "ready for openclaw";
 }
 
+type ArtifactLinks = {
+  repoUrl?: string;
+  prUrl?: string;
+  artifactUrl?: string;
+  docsUrl?: string;
+  designUrl?: string;
+};
+
+function buildArtifactComment(summary: string, links: ArtifactLinks): string {
+  const lines = [summary];
+  const linkLines = [
+    links.repoUrl === undefined ? undefined : `- Repo: ${links.repoUrl}`,
+    links.prUrl === undefined ? undefined : `- PR: ${links.prUrl}`,
+    links.artifactUrl === undefined ? undefined : `- Preview or deployment: ${links.artifactUrl}`,
+    links.docsUrl === undefined ? undefined : `- Docs: ${links.docsUrl}`,
+    links.designUrl === undefined ? undefined : `- Design: ${links.designUrl}`,
+  ].filter((line): line is string => line !== undefined);
+
+  if (linkLines.length > 0) {
+    lines.push("", "Useful links:", ...linkLines);
+  }
+
+  return lines.join("\n");
+}
+
 export function createBridgeServices(config: BridgeConfig) {
   const logger = createLogger("bridge");
   const state = new InMemoryStateStore();
@@ -47,6 +72,22 @@ export function createBridgeServices(config: BridgeConfig) {
   const artifactUrl = config.ARTIFACT_URL ?? config.CLICKUP_ARTIFACT_URL;
   const docsUrl = config.DOCS_URL ?? config.CLICKUP_DOCS_URL;
   const designUrl = config.DESIGN_URL ?? config.CLICKUP_DESIGN_URL;
+  const artifactLinks: ArtifactLinks = {};
+  if (repoUrl !== undefined) {
+    artifactLinks.repoUrl = repoUrl;
+  }
+  if (prUrl !== undefined) {
+    artifactLinks.prUrl = prUrl;
+  }
+  if (artifactUrl !== undefined) {
+    artifactLinks.artifactUrl = artifactUrl;
+  }
+  if (docsUrl !== undefined) {
+    artifactLinks.docsUrl = docsUrl;
+  }
+  if (designUrl !== undefined) {
+    artifactLinks.designUrl = designUrl;
+  }
   const clickup =
     config.CLICKUP_API_TOKEN === undefined
       ? undefined
@@ -86,21 +127,21 @@ export function createBridgeServices(config: BridgeConfig) {
     }
 
     state.upsertJob({
-        task: {
-          id: event.taskId,
-          name: event.taskId,
-          status: event.status ?? "unknown",
-          listId: event.listId,
-          repoUrl,
-          prUrl,
-          artifactUrl,
-          docsUrl,
-          designUrl,
-          tags: [],
-        },
-        state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
-        claim: undefined,
-        idempotencyKey,
+      task: {
+        id: event.taskId,
+        name: event.taskId,
+        status: event.status ?? "unknown",
+        listId: event.listId,
+        repoUrl,
+        prUrl,
+        artifactUrl,
+        docsUrl,
+        designUrl,
+        tags: [],
+      },
+      state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
+      claim: undefined,
+      idempotencyKey,
       retryCount: 0,
       lastError: undefined,
       lastEventAt: receivedAt,
@@ -247,7 +288,7 @@ export function createBridgeServices(config: BridgeConfig) {
     });
 
     if (clickup !== undefined) {
-      await clickup.postTaskComment(taskId, input.summary);
+      await clickup.postTaskComment(taskId, buildArtifactComment(input.summary, artifactLinks));
       await clickup.updateTaskMetadata(taskId, {
         status:
           input.outcome === "succeeded"

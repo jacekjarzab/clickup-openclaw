@@ -89,4 +89,3 @@
 - OpenClaw can finish a task and write the summary back.
 - Crashes and timeouts are visible in ClickUp.
 - The system can recover without duplicate task execution.
-

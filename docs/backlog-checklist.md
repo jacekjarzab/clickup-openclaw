@@ -44,11 +44,11 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 5: Artifact Linking
 
-- [ ] Capture repo URLs
-- [ ] Capture PR URLs
-- [ ] Capture deployment or preview URLs
-- [ ] Capture docs or design links
-- [ ] Include all useful links in the final ClickUp comment
+- [x] Capture repo URLs
+- [x] Capture PR URLs
+- [x] Capture deployment or preview URLs
+- [x] Capture docs or design links
+- [x] Include all useful links in the final ClickUp comment
 
 ## Phase 6: Reliability
 
