@@ -1,4 +1,5 @@
 import { createLogger } from "@clickup-openclaw/observability";
+import { randomUUID } from "node:crypto";
 
 type ClaimResponse = {
   taskId: string;
@@ -72,14 +73,16 @@ async function main(): Promise<void> {
   const bridgeUrl = process.env.BRIDGE_URL ?? "http://127.0.0.1:8787";
   const leaseSeconds = readNumber(process.env.WORKER_LEASE_SECONDS, 15 * 60);
   const pollIntervalMs = readNumber(process.env.WORKER_POLL_INTERVAL_MS, 2500);
+  const workerConcurrency = Math.max(1, readNumber(process.env.WORKER_CONCURRENCY, 1));
+  const workerId = process.env.WORKER_ID ?? randomUUID();
   const runOnce = process.env.WORKER_RUN_ONCE === "1";
   const shutdownController = new AbortController();
-  let activeRun:
-    | {
-        claim: ClaimResponse;
-        finalized: boolean;
-      }
-    | undefined;
+  type ActiveRun = {
+    claim: ClaimResponse;
+    finalized: boolean;
+    workerSlot: number;
+  };
+  const activeRuns = new Map<string, ActiveRun>();
 
   async function recordEvent(event: WorkerEvent, signal?: AbortSignal): Promise<void> {
     const response = await fetch(`${bridgeUrl}/workboard/${event.taskId}/events`, {
@@ -255,6 +258,7 @@ async function main(): Promise<void> {
       level: NonNullable<WorkerEvent["level"]>;
       details?: Record<string, unknown>;
     },
+    activeRun: ActiveRun | undefined,
   ): Promise<void> {
     if (activeRun?.finalized === true) {
       return;
@@ -284,29 +288,35 @@ async function main(): Promise<void> {
   function registerShutdownHandler(signalName: NodeJS.Signals): void {
     shutdownController.abort();
 
-    const claim = activeRun?.claim;
-    if (claim === undefined) {
-      return;
-    }
-
-    void reportTerminalOutcome(claim, {
-      outcome: "failed",
-      progressState: "canceled",
-      summary: `Worker run canceled for task ${claim.taskId} because ${signalName} was received.`,
-      logMessage: "worker shutdown requested",
-      level: "warn",
-      details: {
-        signal: signalName,
-        taskName: claim.task?.name,
-      },
-    }).catch((error) => {
-      logger.warn("failed to handle worker shutdown", {
-        taskId: claim.taskId,
-        runId: claim.runId,
-        signal: signalName,
-        error: String(error),
+    for (const runState of activeRuns.values()) {
+      const claim = runState.claim;
+      void reportTerminalOutcome(
+        claim,
+        {
+          outcome: "failed",
+          progressState: "canceled",
+          summary: `Worker run canceled for task ${claim.taskId} because ${signalName} was received.`,
+          logMessage: "worker shutdown requested",
+          level: "warn",
+          details: {
+            signal: signalName,
+            taskName: claim.task?.name,
+            workerId,
+            workerSlot: runState.workerSlot,
+          },
+        },
+        runState,
+      ).catch((error) => {
+        logger.warn("failed to handle worker shutdown", {
+          taskId: claim.taskId,
+          runId: claim.runId,
+          signal: signalName,
+          workerId,
+          workerSlot: runState.workerSlot,
+          error: String(error),
+        });
       });
-    });
+    }
   }
 
   process.once("SIGINT", () => {
@@ -316,97 +326,140 @@ async function main(): Promise<void> {
     registerShutdownHandler("SIGTERM");
   });
 
-  logger.info("worker started", { bridgeUrl, pollIntervalMs, leaseSeconds, runOnce });
+  async function runWorkerLoop(workerSlot: number): Promise<void> {
+    while (!shutdownController.signal.aborted) {
+      let claim: ClaimResponse | null;
 
-  while (!shutdownController.signal.aborted) {
-    let claim: ClaimResponse | null;
+      try {
+        claim = await claimNext(shutdownController.signal);
+      } catch (error) {
+        if (isAbortError(error) || shutdownController.signal.aborted) {
+          return;
+        }
 
-    try {
-      claim = await claimNext(shutdownController.signal);
-    } catch (error) {
-      if (isAbortError(error) || shutdownController.signal.aborted) {
-        break;
+        throw error;
       }
 
-      throw error;
-    }
+      if (claim === null) {
+        logger.debug("no eligible work", {
+          bridgeUrl,
+          pollIntervalMs,
+          leaseSeconds,
+          runOnce,
+          workerId,
+          workerSlot,
+        });
+        if (runOnce) {
+          return;
+        }
 
-    if (claim === null) {
-      logger.debug("no eligible work", { bridgeUrl, pollIntervalMs, leaseSeconds, runOnce });
+        await sleep(pollIntervalMs);
+        continue;
+      }
+
+      const activeRun = { claim, finalized: false, workerSlot };
+      activeRuns.set(claim.taskId, activeRun);
+
+      try {
+        await emitLog(claim, "info", "claimed task", {
+          leaseExpiresAt: claim.leaseExpiresAt,
+          leaseSeconds: claim.leaseSeconds,
+          requestedAt: claim.requestedAt,
+          workerId,
+          workerSlot,
+        });
+        await emitProgress(claim, "claim", "started", "Worker started processing claimed task", {
+          leaseExpiresAt: claim.leaseExpiresAt,
+          workerId,
+          workerSlot,
+        });
+        await heartbeat(claim.taskId, shutdownController.signal);
+        await emitLog(claim, "info", "heartbeat sent", {
+          leaseSeconds: claim.leaseSeconds,
+          leaseExpiresAt: claim.leaseExpiresAt,
+          workerId,
+          workerSlot,
+        });
+        await emitProgress(claim, "heartbeat", "running", "Lease renewed for active task", {
+          leaseExpiresAt: claim.leaseExpiresAt,
+          workerId,
+          workerSlot,
+        });
+        await sleep(0);
+
+        await reportTerminalOutcome(
+          claim,
+          {
+            outcome: "succeeded",
+            progressState: "completed",
+            summary: `OpenClaw worker completed task ${claim.taskId}${claim.task?.name ? ` (${claim.task.name})` : ""} in run ${claim.runId}.`,
+            logMessage: "completed task",
+            level: "info",
+            details: {
+              outcome: "succeeded",
+              taskName: claim.task?.name,
+              workerId,
+              workerSlot,
+            },
+          },
+          activeRun,
+        );
+      } catch (error) {
+        if (activeRun.finalized !== true) {
+          const details = {
+            ...describeError(error),
+            taskName: claim.task?.name,
+            workerId,
+            workerSlot,
+          };
+
+          await reportTerminalOutcome(
+            claim,
+            {
+              outcome: "failed",
+              progressState: isAbortError(error) || shutdownController.signal.aborted ? "canceled" : "failed",
+              summary: isAbortError(error) || shutdownController.signal.aborted
+                ? `Worker run canceled for task ${claim.taskId}${claim.task?.name ? ` (${claim.task.name})` : ""} in run ${claim.runId}.`
+                : `Worker run failed for task ${claim.taskId}${claim.task?.name ? ` (${claim.task.name})` : ""} in run ${claim.runId}.`,
+              logMessage: isAbortError(error) || shutdownController.signal.aborted
+                ? "worker run canceled"
+                : "worker run failed",
+              level: isAbortError(error) || shutdownController.signal.aborted ? "warn" : "error",
+              details,
+            },
+            activeRun,
+          );
+        }
+
+        if (isAbortError(error) || shutdownController.signal.aborted) {
+          return;
+        }
+
+        throw error;
+      } finally {
+        if (activeRuns.get(claim.taskId) === activeRun) {
+          activeRuns.delete(claim.taskId);
+        }
+      }
+
       if (runOnce) {
         return;
       }
-
-      await sleep(pollIntervalMs);
-      continue;
-    }
-
-    activeRun = { claim, finalized: false };
-
-    try {
-      await emitLog(claim, "info", "claimed task", {
-        leaseExpiresAt: claim.leaseExpiresAt,
-        leaseSeconds: claim.leaseSeconds,
-        requestedAt: claim.requestedAt,
-      });
-      await emitProgress(claim, "claim", "started", "Worker started processing claimed task", {
-        leaseExpiresAt: claim.leaseExpiresAt,
-      });
-      await heartbeat(claim.taskId, shutdownController.signal);
-      await emitLog(claim, "info", "heartbeat sent", {
-        leaseSeconds: claim.leaseSeconds,
-        leaseExpiresAt: claim.leaseExpiresAt,
-      });
-      await emitProgress(claim, "heartbeat", "running", "Lease renewed for active task", {
-        leaseExpiresAt: claim.leaseExpiresAt,
-      });
-      await sleep(0);
-
-      await reportTerminalOutcome(claim, {
-        outcome: "succeeded",
-        progressState: "completed",
-        summary: `OpenClaw worker completed task ${claim.taskId}${claim.task?.name ? ` (${claim.task.name})` : ""} in run ${claim.runId}.`,
-        logMessage: "completed task",
-        level: "info",
-        details: {
-          outcome: "succeeded",
-          taskName: claim.task?.name,
-        },
-      });
-    } catch (error) {
-      if (activeRun?.finalized !== true) {
-        const details = {
-          ...describeError(error),
-          taskName: claim.task?.name,
-        };
-
-        await reportTerminalOutcome(claim, {
-          outcome: "failed",
-          progressState: isAbortError(error) || shutdownController.signal.aborted ? "canceled" : "failed",
-          summary: isAbortError(error) || shutdownController.signal.aborted
-            ? `Worker run canceled for task ${claim.taskId}${claim.task?.name ? ` (${claim.task.name})` : ""} in run ${claim.runId}.`
-            : `Worker run failed for task ${claim.taskId}${claim.task?.name ? ` (${claim.task.name})` : ""} in run ${claim.runId}.`,
-          logMessage: isAbortError(error) || shutdownController.signal.aborted
-            ? "worker run canceled"
-            : "worker run failed",
-          level: isAbortError(error) || shutdownController.signal.aborted ? "warn" : "error",
-          details,
-        });
-      }
-
-      if (isAbortError(error) || shutdownController.signal.aborted) {
-        break;
-      }
-
-      throw error;
-    } finally {
-      activeRun = undefined;
-    }
-
-    if (runOnce) {
-      return;
     }
   }
+
+  logger.info("worker started", {
+    bridgeUrl,
+    pollIntervalMs,
+    leaseSeconds,
+    runOnce,
+    workerId,
+    workerConcurrency,
+  });
+
+  await Promise.all(
+    Array.from({ length: workerConcurrency }, async (_, index) => runWorkerLoop(index + 1)),
+  );
 }
 
 void main().catch((error: unknown) => {
