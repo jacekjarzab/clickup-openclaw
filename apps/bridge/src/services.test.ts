@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createBridgeServices } from "./services.js";
 
-test("bridge write-back includes repo_url, pr_url, and artifact_url on claim and completion", async () => {
+test("bridge write-back includes repo_url, pr_url, artifact_url, docs_url, and design_url on claim and completion", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
 
@@ -19,6 +19,8 @@ test("bridge write-back includes repo_url, pr_url, and artifact_url on claim and
         REPO_URL: "git+https://github.com/acme/widgets.git",
         PR_URL: "https://github.com/acme/widgets/pull/42",
         ARTIFACT_URL: "https://preview.example.com/widgets",
+        DOCS_URL: "https://docs.example.com/widgets",
+        DESIGN_URL: "https://figma.com/file/widgets",
         PORT: "8787",
         HOST: "0.0.0.0",
       });
@@ -77,6 +79,20 @@ test("bridge write-back includes repo_url, pr_url, and artifact_url on claim and
       },
     );
     assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "docs_url"),
+      {
+        id: "docs_url",
+        value: "https://docs.example.com/widgets",
+      },
+    );
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "design_url"),
+      {
+        id: "design_url",
+        value: "https://figma.com/file/widgets",
+      },
+    );
+    assert.deepEqual(
       secondUpdateBody.custom_fields?.find((field) => field.id === "repo_url"),
       {
         id: "repo_url",
@@ -95,6 +111,20 @@ test("bridge write-back includes repo_url, pr_url, and artifact_url on claim and
       {
         id: "artifact_url",
         value: "https://preview.example.com/widgets",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "docs_url"),
+      {
+        id: "docs_url",
+        value: "https://docs.example.com/widgets",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "design_url"),
+      {
+        id: "design_url",
+        value: "https://figma.com/file/widgets",
       },
     );
   } finally {

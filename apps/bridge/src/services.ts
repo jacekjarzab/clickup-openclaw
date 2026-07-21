@@ -45,6 +45,8 @@ export function createBridgeServices(config: BridgeConfig) {
   const repoUrl = resolveRepoUrl(config);
   const prUrl = config.PR_URL ?? config.CLICKUP_PR_URL;
   const artifactUrl = config.ARTIFACT_URL ?? config.CLICKUP_ARTIFACT_URL;
+  const docsUrl = config.DOCS_URL ?? config.CLICKUP_DOCS_URL;
+  const designUrl = config.DESIGN_URL ?? config.CLICKUP_DESIGN_URL;
   const clickup =
     config.CLICKUP_API_TOKEN === undefined
       ? undefined
@@ -92,6 +94,8 @@ export function createBridgeServices(config: BridgeConfig) {
           repoUrl,
           prUrl,
           artifactUrl,
+          docsUrl,
+          designUrl,
           tags: [],
         },
         state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
@@ -156,6 +160,8 @@ export function createBridgeServices(config: BridgeConfig) {
           ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
           ...(prUrl === undefined ? {} : { pr_url: prUrl }),
           ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
+          ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
+          ...(designUrl === undefined ? {} : { design_url: designUrl }),
         },
       });
     }
@@ -263,6 +269,8 @@ export function createBridgeServices(config: BridgeConfig) {
           ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
           ...(prUrl === undefined ? {} : { pr_url: prUrl }),
           ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
+          ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
+          ...(designUrl === undefined ? {} : { design_url: designUrl }),
         },
       });
     }
