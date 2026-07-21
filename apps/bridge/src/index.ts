@@ -24,6 +24,10 @@ const blockedSchema = z.object({
   reason: z.string().min(1),
 });
 
+const reviewSchema = z.object({
+  reason: z.string().min(1),
+});
+
 const monitorHeartbeatsSchema = z
   .object({
     now: z.string().min(1).optional(),
@@ -123,6 +127,17 @@ async function main(): Promise<void> {
 
     const { taskId } = request.params as { taskId: string };
     const result = await services.markBlockedJob(taskId, input.data);
+    return reply.send(result);
+  });
+
+  app.post("/workboard/:taskId/review", async (request, reply) => {
+    const input = reviewSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.forceReviewJob(taskId, input.data);
     return reply.send(result);
   });
 

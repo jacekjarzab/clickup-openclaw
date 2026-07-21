@@ -698,6 +698,68 @@ export function createBridgeServices(config: BridgeConfig) {
     };
   }
 
+  async function forceReviewJob(taskId: string, input: { reason: string }) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    const now = nowIso();
+    const claim = workboard.getClaim(taskId);
+    workboard.release(taskId);
+
+    state.mergeJob(taskId, {
+      state: "normalized",
+      claim: undefined,
+      terminalAt: undefined,
+      outcome: undefined,
+      lastError: input.reason,
+      updatedAt: now,
+    });
+
+    try {
+      if (clickup !== undefined) {
+        await clickup.postTaskComment(taskId, `Forced into review by OpenClaw: ${input.reason}`);
+        await clickup.updateTaskMetadata(taskId, {
+          status: "review",
+          customFields: {
+            automation_state: "candidate",
+            last_sync_at: now,
+            last_error: input.reason,
+            run_id: claim?.runId ?? current.claim?.runId ?? "",
+            workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
+            ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
+            ...(prUrl === undefined ? {} : { pr_url: prUrl }),
+            ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
+            ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
+            ...(designUrl === undefined ? {} : { design_url: designUrl }),
+          },
+        });
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      state.mergeJob(taskId, {
+        state: "deadLettered",
+        claim: undefined,
+        outcome: "deadLettered",
+        terminalAt: nowIso(),
+        lastError: reason,
+        deadLetteredAt: nowIso(),
+        deadLetterReason: reason,
+        updatedAt: nowIso(),
+      });
+      logger.error("job dead-lettered during force review write-back", { taskId, reason });
+      throw error;
+    }
+
+    logger.warn("job forced into review", { taskId, reason: input.reason });
+    return {
+      taskId,
+      reviewAt: now,
+      reason: input.reason,
+    };
+  }
+
   return {
     logger,
     state,
@@ -709,6 +771,7 @@ export function createBridgeServices(config: BridgeConfig) {
     releaseJob,
     requeueJob,
     markBlockedJob,
+    forceReviewJob,
     pauseWork,
     resumeWork,
     getControlState,

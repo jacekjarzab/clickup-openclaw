@@ -407,3 +407,75 @@ test("bridge markBlocked records the reason and updates ClickUp", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("bridge forceReview updates ClickUp review state and writes the reason", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-7",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const claim = await services.claimNextJob();
+    assert.ok(claim);
+
+    const result = await services.forceReviewJob("task-7", {
+      reason: "Human sign-off required",
+    });
+
+    assert.deepEqual(result, {
+      taskId: "task-7",
+      reviewAt: result.reviewAt,
+      reason: "Human sign-off required",
+    });
+    assert.equal(services.listJobs()[0]?.state, "normalized");
+
+    const commentRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "POST" && String(request.url).endsWith("/comment");
+    });
+    const updateRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "PUT";
+    });
+
+    assert.equal(commentRequests.length, 2);
+    assert.equal(updateRequests.length, 2);
+
+    const reviewCommentBody = JSON.parse(String(commentRequests[1]?.init?.body)) as {
+      comment_text?: string;
+    };
+    const reviewUpdateBody = JSON.parse(String(updateRequests[1]?.init?.body)) as {
+      status?: string;
+      custom_fields?: Array<{ id: string; value: unknown }>;
+    };
+
+    assert.match(reviewCommentBody.comment_text ?? "", /Forced into review by OpenClaw/i);
+    assert.equal(reviewUpdateBody.status, "review");
+    assert.deepEqual(
+      reviewUpdateBody.custom_fields?.find((field) => field.id === "automation_state"),
+      {
+        id: "automation_state",
+        value: "candidate",
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
