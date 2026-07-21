@@ -20,6 +20,10 @@ const releaseSchema = z.object({
   requeue: z.boolean().optional(),
 });
 
+const blockedSchema = z.object({
+  reason: z.string().min(1),
+});
+
 const monitorHeartbeatsSchema = z
   .object({
     now: z.string().min(1).optional(),
@@ -108,6 +112,17 @@ async function main(): Promise<void> {
       return reply.code(404).send({ error: "job not found" });
     }
 
+    return reply.send(result);
+  });
+
+  app.post("/workboard/:taskId/block", async (request, reply) => {
+    const input = blockedSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.markBlockedJob(taskId, input.data);
     return reply.send(result);
   });
 

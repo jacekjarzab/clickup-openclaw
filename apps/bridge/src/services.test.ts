@@ -335,3 +335,75 @@ test("bridge requeue re-adds a released task to the queue", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("bridge markBlocked records the reason and updates ClickUp", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-6",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const claim = await services.claimNextJob();
+    assert.ok(claim);
+
+    const result = await services.markBlockedJob("task-6", {
+      reason: "Waiting on client input",
+    });
+
+    assert.deepEqual(result, {
+      taskId: "task-6",
+      blockedAt: result.blockedAt,
+      reason: "Waiting on client input",
+    });
+    assert.equal(services.listJobs()[0]?.state, "blocked");
+
+    const commentRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "POST" && String(request.url).endsWith("/comment");
+    });
+    const updateRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "PUT";
+    });
+
+    assert.equal(commentRequests.length, 2);
+    assert.equal(updateRequests.length, 2);
+
+    const blockedCommentBody = JSON.parse(String(commentRequests[1]?.init?.body)) as {
+      comment_text?: string;
+    };
+    const blockedUpdateBody = JSON.parse(String(updateRequests[1]?.init?.body)) as {
+      status?: string;
+      custom_fields?: Array<{ id: string; value: unknown }>;
+    };
+
+    assert.match(blockedCommentBody.comment_text ?? "", /Marked blocked by OpenClaw/i);
+    assert.equal(blockedUpdateBody.status, "blocked");
+    assert.deepEqual(
+      blockedUpdateBody.custom_fields?.find((field) => field.id === "automation_state"),
+      {
+        id: "automation_state",
+        value: "blocked",
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
