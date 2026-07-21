@@ -32,6 +32,17 @@ export class InMemoryWorkboard {
     return item;
   }
 
+  removeQueued(taskId: string): WorkItem | undefined {
+    const index = this.queue.findIndex((item) => item.taskId === taskId);
+    if (index === -1) {
+      return undefined;
+    }
+
+    const [removed] = this.queue.splice(index, 1);
+    this.queuedTaskIds.delete(taskId);
+    return removed;
+  }
+
   claim(record: ClaimRecord): void {
     this.claims.set(record.taskId, record);
     this.queuedTaskIds.delete(record.taskId);

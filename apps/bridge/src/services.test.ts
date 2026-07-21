@@ -479,3 +479,144 @@ test("bridge forceReview updates ClickUp review state and writes the reason", as
     globalThis.fetch = originalFetch;
   }
 });
+
+test("bridge ingests a project key from config or payload for future routing", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      DEFAULT_PROJECT_KEY: "client-a",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-8",
+      listId: "list-1",
+      status: "ready for openclaw",
+      payload: { projectKey: "client-b" },
+    });
+
+    const job = services.listJobs()[0];
+    assert.equal(job?.task.projectKey, "client-a");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bridge applies project routing rules for a project-specific task", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      REPO_URL: "https://github.com/acme/default-repo",
+      PR_URL: "https://github.com/acme/default-repo/pull/1",
+      ARTIFACT_URL: "https://preview.example.com/default",
+      DOCS_URL: "https://docs.example.com/default",
+      DESIGN_URL: "https://figma.com/file/default",
+      PROJECT_ROUTING_JSON: JSON.stringify({
+        "client-a": {
+          repoUrl: "https://github.com/acme/client-a",
+          prUrl: "https://github.com/acme/client-a/pull/9",
+          docsUrl: "https://docs.example.com/client-a",
+        },
+      }),
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-9",
+      listId: "list-1",
+      status: "ready for openclaw",
+      payload: { projectKey: "client-a" },
+    });
+
+    const claim = await services.claimNextJob();
+    assert.ok(claim);
+
+    await services.completeJob("task-9", {
+      outcome: "succeeded",
+      summary: "Finished the routed task",
+    });
+
+    const updateRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "PUT";
+    });
+
+    assert.equal(updateRequests.length, 2);
+
+    const firstUpdateBody = JSON.parse(String(updateRequests[0]?.init?.body)) as {
+      custom_fields?: Array<{ id: string; value: unknown }>;
+    };
+    const secondUpdateBody = JSON.parse(String(updateRequests[1]?.init?.body)) as {
+      custom_fields?: Array<{ id: string; value: unknown }>;
+    };
+
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "repo_url"),
+      {
+        id: "repo_url",
+        value: "https://github.com/acme/client-a",
+      },
+    );
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "pr_url"),
+      {
+        id: "pr_url",
+        value: "https://github.com/acme/client-a/pull/9",
+      },
+    );
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "artifact_url"),
+      {
+        id: "artifact_url",
+        value: "https://preview.example.com/default",
+      },
+    );
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "docs_url"),
+      {
+        id: "docs_url",
+        value: "https://docs.example.com/client-a",
+      },
+    );
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "design_url"),
+      {
+        id: "design_url",
+        value: "https://figma.com/file/default",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "repo_url"),
+      {
+        id: "repo_url",
+        value: "https://github.com/acme/client-a",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "pr_url"),
+      {
+        id: "pr_url",
+        value: "https://github.com/acme/client-a/pull/9",
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

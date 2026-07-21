@@ -46,6 +46,46 @@ type ArtifactLinks = {
   designUrl?: string;
 };
 
+type ProjectRoutingRule = ArtifactLinks;
+
+function parseProjectRoutingRules(input: string | undefined): Record<string, ProjectRoutingRule> {
+  if (input === undefined) {
+    return {};
+  }
+
+  const parsed = JSON.parse(input) as Record<string, unknown>;
+  const rules: Record<string, ProjectRoutingRule> = {};
+
+  for (const [projectKey, rawRule] of Object.entries(parsed)) {
+    if (rawRule === null || typeof rawRule !== "object" || Array.isArray(rawRule)) {
+      continue;
+    }
+
+    const rule = rawRule as Record<string, unknown>;
+    const nextRule: ProjectRoutingRule = {};
+
+    if (typeof rule.repoUrl === "string" && rule.repoUrl.trim().length > 0) {
+      nextRule.repoUrl = rule.repoUrl;
+    }
+    if (typeof rule.prUrl === "string" && rule.prUrl.trim().length > 0) {
+      nextRule.prUrl = rule.prUrl;
+    }
+    if (typeof rule.artifactUrl === "string" && rule.artifactUrl.trim().length > 0) {
+      nextRule.artifactUrl = rule.artifactUrl;
+    }
+    if (typeof rule.docsUrl === "string" && rule.docsUrl.trim().length > 0) {
+      nextRule.docsUrl = rule.docsUrl;
+    }
+    if (typeof rule.designUrl === "string" && rule.designUrl.trim().length > 0) {
+      nextRule.designUrl = rule.designUrl;
+    }
+
+    rules[projectKey] = nextRule;
+  }
+
+  return rules;
+}
+
 function buildArtifactComment(summary: string, links: ArtifactLinks): string {
   const lines = [summary];
   const linkLines = [
@@ -70,6 +110,47 @@ function buildHeartbeatComment(taskId: string, leaseExpiresAt: string): string {
   ].join("\n");
 }
 
+function resolveArtifactLinks(
+  projectKey: string | undefined,
+  defaults: ArtifactLinks,
+  routingRules: Record<string, ProjectRoutingRule>,
+): ArtifactLinks {
+  const routingRule = projectKey === undefined ? undefined : routingRules[projectKey];
+  const links: ArtifactLinks = {};
+
+  if (routingRule?.repoUrl !== undefined) {
+    links.repoUrl = routingRule.repoUrl;
+  } else if (defaults.repoUrl !== undefined) {
+    links.repoUrl = defaults.repoUrl;
+  }
+
+  if (routingRule?.prUrl !== undefined) {
+    links.prUrl = routingRule.prUrl;
+  } else if (defaults.prUrl !== undefined) {
+    links.prUrl = defaults.prUrl;
+  }
+
+  if (routingRule?.artifactUrl !== undefined) {
+    links.artifactUrl = routingRule.artifactUrl;
+  } else if (defaults.artifactUrl !== undefined) {
+    links.artifactUrl = defaults.artifactUrl;
+  }
+
+  if (routingRule?.docsUrl !== undefined) {
+    links.docsUrl = routingRule.docsUrl;
+  } else if (defaults.docsUrl !== undefined) {
+    links.docsUrl = defaults.docsUrl;
+  }
+
+  if (routingRule?.designUrl !== undefined) {
+    links.designUrl = routingRule.designUrl;
+  } else if (defaults.designUrl !== undefined) {
+    links.designUrl = defaults.designUrl;
+  }
+
+  return links;
+}
+
 function toNumber(value: string | undefined, fallback: number): number {
   if (value === undefined) {
     return fallback;
@@ -84,6 +165,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const state = new InMemoryStateStore();
   const workboard = new InMemoryWorkboard();
   let paused = false;
+  const defaultProjectKey = config.DEFAULT_PROJECT_KEY;
   const repoUrl = resolveRepoUrl(config);
   const prUrl = config.PR_URL ?? config.CLICKUP_PR_URL;
   const artifactUrl = config.ARTIFACT_URL ?? config.CLICKUP_ARTIFACT_URL;
@@ -91,6 +173,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const designUrl = config.DESIGN_URL ?? config.CLICKUP_DESIGN_URL;
   const heartbeatMonitorIntervalMs = Number(config.HEARTBEAT_MONITOR_INTERVAL_MS ?? "60000");
   const queueStallAlertMs = toNumber(config.QUEUE_STALL_ALERT_MS, 10 * 60 * 1000);
+  const projectRoutingRules = parseProjectRoutingRules(config.PROJECT_ROUTING_JSON);
   const artifactLinks: ArtifactLinks = {};
   if (repoUrl !== undefined) {
     artifactLinks.repoUrl = repoUrl;
@@ -120,6 +203,9 @@ export function createBridgeServices(config: BridgeConfig) {
       return;
     }
 
+    const projectKey = state.getJob(taskId)?.task.projectKey;
+    const links = resolveArtifactLinks(projectKey, artifactLinks, projectRoutingRules);
+
     await clickup.postTaskComment(taskId, "Claimed by OpenClaw, starting work.");
     await clickup.updateTaskMetadata(taskId, {
       status: "in progress",
@@ -128,11 +214,11 @@ export function createBridgeServices(config: BridgeConfig) {
         workboard_id: claimWorkboardId,
         automation_state: "claimed",
         last_sync_at: now,
-        ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
-        ...(prUrl === undefined ? {} : { pr_url: prUrl }),
-        ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
-        ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
-        ...(designUrl === undefined ? {} : { design_url: designUrl }),
+        ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
+        ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
+        ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
+        ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
+        ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
       },
     });
   }
@@ -141,6 +227,7 @@ export function createBridgeServices(config: BridgeConfig) {
     const event = clickupWebhookEventSchema.parse(input);
     const idempotencyKey = deriveIdempotencyKey(event);
     const receivedAt = nowIso();
+    const projectKey = defaultProjectKey ?? event.payload?.projectKey;
 
     if (state.hasIdempotencyKey(idempotencyKey)) {
       logger.info("webhook duplicate ignored", { event: event.event, taskId: event.taskId });
@@ -173,6 +260,7 @@ export function createBridgeServices(config: BridgeConfig) {
         name: event.taskId,
         status: event.status ?? "unknown",
         listId: event.listId,
+        projectKey: typeof projectKey === "string" ? projectKey : undefined,
         repoUrl,
         prUrl,
         artifactUrl,
@@ -288,6 +376,7 @@ export function createBridgeServices(config: BridgeConfig) {
     const leaseSeconds = input?.leaseSeconds ?? DEFAULT_LEASE_SECONDS;
     const now = nowIso();
     const runId = randomUUID();
+    workboard.removeQueued(taskId);
     const claim = claimRecordSchema.parse({
       taskId,
       runId,
@@ -572,6 +661,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     const claim = workboard.getClaim(taskId);
     const completedAt = nowIso();
+    const links = resolveArtifactLinks(current.task.projectKey, artifactLinks, projectRoutingRules);
     workboard.release(taskId);
 
     const nextState = workboardStateSchema.parse(
@@ -582,12 +672,13 @@ export function createBridgeServices(config: BridgeConfig) {
       state: nextState,
       claim: undefined,
       lastError: input.outcome === "succeeded" ? undefined : input.summary,
+      terminalAt: completedAt,
       updatedAt: completedAt,
     });
 
     try {
       if (clickup !== undefined) {
-        await clickup.postTaskComment(taskId, buildArtifactComment(input.summary, artifactLinks));
+        await clickup.postTaskComment(taskId, buildArtifactComment(input.summary, links));
         await clickup.updateTaskMetadata(taskId, {
           status:
             input.outcome === "succeeded"
@@ -606,11 +697,11 @@ export function createBridgeServices(config: BridgeConfig) {
             last_error: input.outcome === "succeeded" ? "" : input.summary,
             run_id: claim?.runId ?? current.claim?.runId ?? "",
             workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
-            ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
-            ...(prUrl === undefined ? {} : { pr_url: prUrl }),
-            ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
-            ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
-            ...(designUrl === undefined ? {} : { design_url: designUrl }),
+            ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
+            ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
+            ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
+            ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
+            ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
           },
         });
       }
@@ -619,6 +710,7 @@ export function createBridgeServices(config: BridgeConfig) {
       state.mergeJob(taskId, {
         state: "deadLettered",
         claim: undefined,
+        terminalAt: nowIso(),
         lastError: reason,
         deadLetteredAt: nowIso(),
         deadLetterReason: reason,
@@ -644,6 +736,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     const now = nowIso();
     const claim = workboard.getClaim(taskId);
+    const links = resolveArtifactLinks(current.task.projectKey, artifactLinks, projectRoutingRules);
     workboard.release(taskId);
 
     state.mergeJob(taskId, {
@@ -666,11 +759,11 @@ export function createBridgeServices(config: BridgeConfig) {
             last_error: input.reason,
             run_id: claim?.runId ?? current.claim?.runId ?? "",
             workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
-            ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
-            ...(prUrl === undefined ? {} : { pr_url: prUrl }),
-            ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
-            ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
-            ...(designUrl === undefined ? {} : { design_url: designUrl }),
+            ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
+            ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
+            ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
+            ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
+            ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
           },
         });
       }
@@ -706,6 +799,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     const now = nowIso();
     const claim = workboard.getClaim(taskId);
+    const links = resolveArtifactLinks(current.task.projectKey, artifactLinks, projectRoutingRules);
     workboard.release(taskId);
 
     state.mergeJob(taskId, {
@@ -728,11 +822,11 @@ export function createBridgeServices(config: BridgeConfig) {
             last_error: input.reason,
             run_id: claim?.runId ?? current.claim?.runId ?? "",
             workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
-            ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
-            ...(prUrl === undefined ? {} : { pr_url: prUrl }),
-            ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
-            ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
-            ...(designUrl === undefined ? {} : { design_url: designUrl }),
+            ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
+            ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
+            ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
+            ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
+            ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
           },
         });
       }

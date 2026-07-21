@@ -69,8 +69,8 @@ This is the living build checklist. Update it as we complete items and discover 
 ## Phase 8: Quality and Scale
 
 - [x] Support multiple workers
-- [ ] Support multiple projects or clients
-- [ ] Add per-project routing rules
+- [x] Support multiple projects or clients
+- [x] Add per-project routing rules
 - [ ] Add task templates by work type
 - [ ] Add dashboards for queue health and completion rates
 
