@@ -2,6 +2,7 @@ import type {
   ClaimRecord,
   ClickUpTask,
   IdempotencyRecord,
+  WorkerEvent,
   WorkboardState,
 } from "@clickup-openclaw/shared";
 
@@ -14,6 +15,7 @@ export type JobRecord = {
   lastError: string | undefined;
   lastEventAt: string | undefined;
   updatedAt: string;
+  events: WorkerEvent[];
 };
 
 export type JobPatch = {
@@ -25,6 +27,7 @@ export type JobPatch = {
   lastError?: string | undefined;
   lastEventAt?: string | undefined;
   updatedAt?: string | undefined;
+  events?: WorkerEvent[] | undefined;
 };
 
 export class InMemoryStateStore {
@@ -32,7 +35,10 @@ export class InMemoryStateStore {
   private readonly idempotency = new Map<string, IdempotencyRecord>();
 
   upsertJob(job: JobRecord): void {
-    this.jobs.set(job.task.id, job);
+    this.jobs.set(job.task.id, {
+      ...job,
+      events: job.events.slice(),
+    });
   }
 
   mergeJob(taskId: string, patch: JobPatch): JobRecord | undefined {
@@ -67,6 +73,26 @@ export class InMemoryStateStore {
     if ("updatedAt" in patch && patch.updatedAt !== undefined) {
       next.updatedAt = patch.updatedAt;
     }
+    if ("events" in patch && patch.events !== undefined) {
+      next.events = patch.events.slice();
+    }
+
+    this.jobs.set(taskId, next);
+    return next;
+  }
+
+  appendJobEvent(taskId: string, event: WorkerEvent): JobRecord | undefined {
+    const current = this.jobs.get(taskId);
+    if (current === undefined) {
+      return undefined;
+    }
+
+    const next: JobRecord = {
+      ...current,
+      events: [...current.events, event].slice(-100),
+      lastEventAt: event.at,
+      updatedAt: event.at,
+    };
 
     this.jobs.set(taskId, next);
     return next;

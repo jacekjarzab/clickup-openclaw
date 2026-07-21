@@ -12,6 +12,18 @@ const heartbeatSchema = z.object({
   leaseSeconds: z.number().int().positive().optional(),
 });
 
+const workerEventSchema = z.object({
+  taskId: z.string().min(1),
+  runId: z.string().min(1),
+  at: z.string().min(1),
+  kind: z.enum(["log", "progress"]),
+  message: z.string().min(1),
+  level: z.enum(["debug", "info", "warn", "error"]).optional(),
+  step: z.string().min(1).optional(),
+  state: z.enum(["started", "running", "completed", "blocked", "failed"]).optional(),
+  details: z.record(z.unknown()).optional(),
+});
+
 const completeSchema = z.object({
   outcome: z.enum(["succeeded", "failed", "blocked"]),
   summary: z.string().min(1),
@@ -56,6 +68,21 @@ async function main(): Promise<void> {
     const result = await services.heartbeatJob(taskId, input.data);
     if (result === null) {
       return reply.code(404).send({ error: "claim not found" });
+    }
+
+    return reply.send(result);
+  });
+
+  app.post("/workboard/:taskId/events", async (request, reply) => {
+    const input = workerEventSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.recordWorkerEvent(taskId, input.data);
+    if (result === null) {
+      return reply.code(404).send({ error: "job not found" });
     }
 
     return reply.send(result);

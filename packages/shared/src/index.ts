@@ -72,3 +72,47 @@ export const idempotencyRecordSchema = z.object({
 });
 
 export type IdempotencyRecord = z.infer<typeof idempotencyRecordSchema>;
+
+export const workerLogLevels = ["debug", "info", "warn", "error"] as const;
+
+export type WorkerLogLevel = (typeof workerLogLevels)[number];
+
+export const workerProgressStates = [
+  "started",
+  "running",
+  "completed",
+  "blocked",
+  "failed",
+] as const;
+
+export type WorkerProgressState = (typeof workerProgressStates)[number];
+
+const workerEventCommonSchema = z.object({
+  taskId: z.string().min(1),
+  runId: z.string().min(1),
+  at: z.string().min(1),
+  message: z.string().min(1),
+  details: z.record(z.unknown()).optional(),
+});
+
+export const workerLogEventSchema = workerEventCommonSchema.extend({
+  kind: z.literal("log"),
+  level: z.enum(workerLogLevels),
+});
+
+export type WorkerLogEvent = z.infer<typeof workerLogEventSchema>;
+
+export const workerProgressEventSchema = workerEventCommonSchema.extend({
+  kind: z.literal("progress"),
+  step: z.string().min(1),
+  state: z.enum(workerProgressStates),
+});
+
+export type WorkerProgressEvent = z.infer<typeof workerProgressEventSchema>;
+
+export const workerEventSchema = z.discriminatedUnion("kind", [
+  workerLogEventSchema,
+  workerProgressEventSchema,
+]);
+
+export type WorkerEvent = z.infer<typeof workerEventSchema>;

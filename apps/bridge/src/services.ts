@@ -1,6 +1,11 @@
 import { createClickUpClient } from "@clickup-openclaw/clickup-client";
 import { createLogger } from "@clickup-openclaw/observability";
-import { claimRecordSchema, clickupWebhookEventSchema, workboardStateSchema } from "@clickup-openclaw/shared";
+import {
+  claimRecordSchema,
+  clickupWebhookEventSchema,
+  workerEventSchema,
+  workboardStateSchema,
+} from "@clickup-openclaw/shared";
 import { InMemoryStateStore } from "@clickup-openclaw/state";
 import { InMemoryWorkboard } from "@clickup-openclaw/workboard";
 import { randomUUID } from "node:crypto";
@@ -89,6 +94,7 @@ export function createBridgeServices(config: BridgeConfig) {
       lastError: undefined,
       lastEventAt: receivedAt,
       updatedAt: receivedAt,
+      events: [],
     });
 
     if (isEligibleForOpenClaw(event.status)) {
@@ -177,6 +183,29 @@ export function createBridgeServices(config: BridgeConfig) {
     return renewed;
   }
 
+  async function recordWorkerEvent(taskId: string, input: unknown) {
+    const event = workerEventSchema.parse(input);
+    if (event.taskId !== taskId) {
+      throw new Error(`Task mismatch for event on ${taskId}`);
+    }
+
+    const recorded = state.appendJobEvent(taskId, event);
+    if (recorded === undefined) {
+      return null;
+    }
+
+    logger.info("worker event recorded", {
+      taskId,
+      runId: event.runId,
+      kind: event.kind,
+      ...(event.kind === "log"
+        ? { level: event.level }
+        : { step: event.step, progressState: event.state }),
+    });
+
+    return recorded;
+  }
+
   async function completeJob(
     taskId: string,
     input: { outcome: "succeeded" | "failed" | "blocked"; summary: string },
@@ -241,6 +270,7 @@ export function createBridgeServices(config: BridgeConfig) {
     ingestWebhook,
     claimNextJob,
     heartbeatJob,
+    recordWorkerEvent,
     completeJob,
     listJobs: () => state.listJobs(),
   };

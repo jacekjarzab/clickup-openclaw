@@ -31,7 +31,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Launch bounded worker runs
 - [x] Pass task payload snapshots into the worker
 - [x] Track retry counts
-- [ ] Capture logs and structured progress events
+- [x] Capture logs and structured progress events
 - [ ] Support graceful cancellation and failure reporting
 
 ## Phase 4: Reporting
