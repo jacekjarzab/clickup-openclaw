@@ -60,8 +60,8 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 7: Operator Controls
 
-- [ ] Add manual claim and release
-- [ ] Add pause and resume controls
+- [x] Add manual claim and release
+- [x] Add pause and resume controls
 - [ ] Add a force-review path
 - [ ] Add a requeue path
 - [ ] Add a mark-blocked path with reason text

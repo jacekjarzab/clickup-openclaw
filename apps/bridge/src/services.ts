@@ -83,6 +83,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const logger = createLogger("bridge");
   const state = new InMemoryStateStore();
   const workboard = new InMemoryWorkboard();
+  let paused = false;
   const repoUrl = resolveRepoUrl(config);
   const prUrl = config.PR_URL ?? config.CLICKUP_PR_URL;
   const artifactUrl = config.ARTIFACT_URL ?? config.CLICKUP_ARTIFACT_URL;
@@ -113,6 +114,28 @@ export function createBridgeServices(config: BridgeConfig) {
           token: config.CLICKUP_API_TOKEN,
           ...(config.CLICKUP_BASE_URL === undefined ? {} : { baseUrl: config.CLICKUP_BASE_URL }),
         });
+
+  async function writeClaimSideEffects(taskId: string, runId: string, claimWorkboardId: string, now: string) {
+    if (clickup === undefined) {
+      return;
+    }
+
+    await clickup.postTaskComment(taskId, "Claimed by OpenClaw, starting work.");
+    await clickup.updateTaskMetadata(taskId, {
+      status: "in progress",
+      customFields: {
+        run_id: runId,
+        workboard_id: claimWorkboardId,
+        automation_state: "claimed",
+        last_sync_at: now,
+        ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
+        ...(prUrl === undefined ? {} : { pr_url: prUrl }),
+        ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
+        ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
+        ...(designUrl === undefined ? {} : { design_url: designUrl }),
+      },
+    });
+  }
 
   async function ingestWebhook(input: unknown) {
     const event = clickupWebhookEventSchema.parse(input);
@@ -180,6 +203,11 @@ export function createBridgeServices(config: BridgeConfig) {
   }
 
   async function claimNextJob(input?: { leaseSeconds?: number | undefined }) {
+    if (paused) {
+      logger.info("claim skipped while paused");
+      return null;
+    }
+
     const leaseSeconds = input?.leaseSeconds ?? DEFAULT_LEASE_SECONDS;
     const now = nowIso();
 
@@ -209,23 +237,7 @@ export function createBridgeServices(config: BridgeConfig) {
     });
 
     try {
-      if (clickup !== undefined) {
-        await clickup.postTaskComment(next.taskId, "Claimed by OpenClaw, starting work.");
-        await clickup.updateTaskMetadata(next.taskId, {
-          status: "in progress",
-          customFields: {
-            run_id: runId,
-            workboard_id: claim.workboardId,
-            automation_state: "claimed",
-            last_sync_at: now,
-            ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
-            ...(prUrl === undefined ? {} : { pr_url: prUrl }),
-            ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
-            ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
-            ...(designUrl === undefined ? {} : { design_url: designUrl }),
-          },
-        });
-      }
+      await writeClaimSideEffects(next.taskId, runId, claim.workboardId, now);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       state.mergeJob(next.taskId, {
@@ -252,6 +264,126 @@ export function createBridgeServices(config: BridgeConfig) {
       leaseSeconds,
       requestedAt: next.requestedAt,
       task: state.getJob(next.taskId)?.task,
+    };
+  }
+
+  async function manualClaimJob(taskId: string, input?: { leaseSeconds?: number | undefined }) {
+    const existing = state.getJob(taskId);
+    if (existing === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    const currentClaim = workboard.getClaim(taskId);
+    if (currentClaim !== undefined) {
+      return {
+        taskId,
+        runId: currentClaim.runId,
+        leaseExpiresAt: currentClaim.leaseExpiresAt,
+        leaseSeconds: currentClaim.leaseSeconds,
+        requestedAt: existing.updatedAt,
+        task: existing.task,
+      };
+    }
+
+    const leaseSeconds = input?.leaseSeconds ?? DEFAULT_LEASE_SECONDS;
+    const now = nowIso();
+    const runId = randomUUID();
+    const claim = claimRecordSchema.parse({
+      taskId,
+      runId,
+      workboardId: `workboard-${taskId}`,
+      leaseStartedAt: now,
+      leaseExpiresAt: toLeaseExpiry(now, leaseSeconds),
+      leaseSeconds,
+    });
+
+    workboard.claim(claim);
+    state.mergeJob(taskId, {
+      state: "leased",
+      claim,
+      claimedAt: now,
+      retryCount: (existing.retryCount ?? 0) + 1,
+      updatedAt: now,
+    });
+
+    try {
+      await writeClaimSideEffects(taskId, runId, claim.workboardId, now);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      state.mergeJob(taskId, {
+        state: "deadLettered",
+        claim: undefined,
+        outcome: "deadLettered",
+        terminalAt: nowIso(),
+        lastError: reason,
+        deadLetteredAt: nowIso(),
+        deadLetterReason: reason,
+        updatedAt: nowIso(),
+      });
+      workboard.release(taskId);
+      logger.error("job dead-lettered during manual claim write-back", { taskId, reason });
+      throw error;
+    }
+
+    logger.info("job manually claimed", { taskId, runId });
+    return {
+      taskId,
+      runId,
+      leaseExpiresAt: claim.leaseExpiresAt,
+      leaseSeconds,
+      requestedAt: now,
+      task: existing.task,
+    };
+  }
+
+  async function releaseJob(taskId: string, input?: { requeue?: boolean | undefined }) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      return null;
+    }
+
+    const hadClaim = workboard.getClaim(taskId);
+    if (hadClaim === undefined) {
+      return { taskId, released: false, requeued: false };
+    }
+
+    workboard.release(taskId);
+    const now = nowIso();
+    state.mergeJob(taskId, {
+      claim: undefined,
+      state: input?.requeue === true ? "eligible" : "normalized",
+      updatedAt: now,
+    });
+
+    if (input?.requeue === true) {
+      workboard.enqueue({
+        taskId,
+        priority: 0,
+        requestedAt: now,
+      });
+    }
+
+    logger.info("job released", { taskId, requeued: input?.requeue === true });
+    return { taskId, released: true, requeued: input?.requeue === true };
+  }
+
+  function pauseWork(): { paused: true } {
+    paused = true;
+    logger.warn("bridge paused");
+    return { paused: true };
+  }
+
+  function resumeWork(): { paused: false } {
+    paused = false;
+    logger.warn("bridge resumed");
+    return { paused: false };
+  }
+
+  function getControlState() {
+    return {
+      paused,
+      heartbeatMonitorIntervalMs,
+      queueStallAlertMs,
     };
   }
 
@@ -501,6 +633,11 @@ export function createBridgeServices(config: BridgeConfig) {
     clickup,
     ingestWebhook,
     claimNextJob,
+    manualClaimJob,
+    releaseJob,
+    pauseWork,
+    resumeWork,
+    getControlState,
     heartbeatJob,
     recordWorkerEvent,
     completeJob,

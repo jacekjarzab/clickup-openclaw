@@ -12,6 +12,14 @@ const heartbeatSchema = z.object({
   leaseSeconds: z.number().int().positive().optional(),
 });
 
+const manualClaimSchema = z.object({
+  leaseSeconds: z.number().int().positive().optional(),
+});
+
+const releaseSchema = z.object({
+  requeue: z.boolean().optional(),
+});
+
 const monitorHeartbeatsSchema = z
   .object({
     now: z.string().min(1).optional(),
@@ -45,6 +53,7 @@ async function main(): Promise<void> {
     ok: true,
     hasClickUpToken: services.clickup !== undefined,
     metrics: services.getMetricsSnapshot(),
+    control: services.getControlState(),
   }));
 
   app.post("/clickup/webhook", async (request, reply) => {
@@ -65,6 +74,38 @@ async function main(): Promise<void> {
 
     return reply.code(201).send(result);
   });
+
+  app.post("/workboard/:taskId/claim", async (request, reply) => {
+    const input = manualClaimSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.manualClaimJob(taskId, input.data);
+    return reply.code(201).send(result);
+  });
+
+  app.post("/workboard/:taskId/release", async (request, reply) => {
+    const input = releaseSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.releaseJob(taskId, input.data);
+    if (result === null) {
+      return reply.code(404).send({ error: "job not found" });
+    }
+
+    return reply.send(result);
+  });
+
+  app.post("/control/pause", async () => services.pauseWork());
+
+  app.post("/control/resume", async () => services.resumeWork());
+
+  app.get("/control", async () => services.getControlState());
 
   app.post("/workboard/:taskId/heartbeat", async (request, reply) => {
     const input = heartbeatSchema.safeParse(request.body);

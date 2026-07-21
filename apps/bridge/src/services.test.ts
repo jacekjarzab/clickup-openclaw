@@ -246,3 +246,52 @@ test("bridge metrics snapshot tracks queue depth, claims, and throughput", async
     globalThis.fetch = originalFetch;
   }
 });
+
+test("bridge pause blocks automatic claim and manual claim/release still work", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-4",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    services.pauseWork();
+    assert.equal(services.getControlState().paused, true);
+    assert.equal(await services.claimNextJob(), null);
+
+    const manualClaim = await services.manualClaimJob("task-4", { leaseSeconds: 10 });
+    assert.ok(manualClaim);
+    assert.equal(services.workboard.listClaims().length, 1);
+
+    const release = await services.releaseJob("task-4", { requeue: true });
+    assert.deepEqual(release, {
+      taskId: "task-4",
+      released: true,
+      requeued: true,
+    });
+    assert.equal(services.workboard.listClaims().length, 0);
+
+    services.resumeWork();
+    assert.equal(services.getControlState().paused, false);
+    const nextClaim = await services.claimNextJob();
+    assert.ok(nextClaim);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
