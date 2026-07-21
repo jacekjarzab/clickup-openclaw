@@ -20,7 +20,7 @@ const workerEventSchema = z.object({
   message: z.string().min(1),
   level: z.enum(["debug", "info", "warn", "error"]).optional(),
   step: z.string().min(1).optional(),
-  state: z.enum(["started", "running", "completed", "blocked", "failed"]).optional(),
+  state: z.enum(["started", "running", "completed", "blocked", "canceled", "failed"]).optional(),
   details: z.record(z.unknown()).optional(),
 });
 

@@ -82,6 +82,7 @@ export const workerProgressStates = [
   "running",
   "completed",
   "blocked",
+  "canceled",
   "failed",
 ] as const;
 

@@ -32,7 +32,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Pass task payload snapshots into the worker
 - [x] Track retry counts
 - [x] Capture logs and structured progress events
-- [ ] Support graceful cancellation and failure reporting
+- [x] Support graceful cancellation and failure reporting
 
 ## Phase 4: Reporting
 
