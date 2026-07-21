@@ -44,6 +44,7 @@ export function createClickUpClient(options: ClickUpClientOptions) {
       };
       const repoUrlField = body.custom_fields?.find((field) => field.id === "repo_url");
       const prUrlField = body.custom_fields?.find((field) => field.id === "pr_url");
+      const artifactUrlField = body.custom_fields?.find((field) => field.id === "artifact_url");
 
       return {
         id: body.id,
@@ -54,6 +55,7 @@ export function createClickUpClient(options: ClickUpClientOptions) {
         description: body.description,
         repoUrl: typeof repoUrlField?.value === "string" ? repoUrlField.value : undefined,
         prUrl: typeof prUrlField?.value === "string" ? prUrlField.value : undefined,
+        artifactUrl: typeof artifactUrlField?.value === "string" ? artifactUrlField.value : undefined,
         tags: body.tags?.map((tag) => tag.name) ?? [],
       };
     },

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createBridgeServices } from "./services.js";
 
-test("bridge write-back includes repo_url and pr_url on claim and completion", async () => {
+test("bridge write-back includes repo_url, pr_url, and artifact_url on claim and completion", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
 
@@ -18,6 +18,7 @@ test("bridge write-back includes repo_url and pr_url on claim and completion", a
         CLICKUP_BASE_URL: "https://clickup.test/api/v2",
         REPO_URL: "git+https://github.com/acme/widgets.git",
         PR_URL: "https://github.com/acme/widgets/pull/42",
+        ARTIFACT_URL: "https://preview.example.com/widgets",
         PORT: "8787",
         HOST: "0.0.0.0",
       });
@@ -69,6 +70,13 @@ test("bridge write-back includes repo_url and pr_url on claim and completion", a
       },
     );
     assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "artifact_url"),
+      {
+        id: "artifact_url",
+        value: "https://preview.example.com/widgets",
+      },
+    );
+    assert.deepEqual(
       secondUpdateBody.custom_fields?.find((field) => field.id === "repo_url"),
       {
         id: "repo_url",
@@ -80,6 +88,13 @@ test("bridge write-back includes repo_url and pr_url on claim and completion", a
       {
         id: "pr_url",
         value: "https://github.com/acme/widgets/pull/42",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "artifact_url"),
+      {
+        id: "artifact_url",
+        value: "https://preview.example.com/widgets",
       },
     );
   } finally {

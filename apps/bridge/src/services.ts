@@ -44,6 +44,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const workboard = new InMemoryWorkboard();
   const repoUrl = resolveRepoUrl(config);
   const prUrl = config.PR_URL ?? config.CLICKUP_PR_URL;
+  const artifactUrl = config.ARTIFACT_URL ?? config.CLICKUP_ARTIFACT_URL;
   const clickup =
     config.CLICKUP_API_TOKEN === undefined
       ? undefined
@@ -90,6 +91,7 @@ export function createBridgeServices(config: BridgeConfig) {
           listId: event.listId,
           repoUrl,
           prUrl,
+          artifactUrl,
           tags: [],
         },
         state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
@@ -153,6 +155,7 @@ export function createBridgeServices(config: BridgeConfig) {
           last_sync_at: now,
           ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
           ...(prUrl === undefined ? {} : { pr_url: prUrl }),
+          ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
         },
       });
     }
@@ -259,6 +262,7 @@ export function createBridgeServices(config: BridgeConfig) {
           workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
           ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
           ...(prUrl === undefined ? {} : { pr_url: prUrl }),
+          ...(artifactUrl === undefined ? {} : { artifact_url: artifactUrl }),
         },
       });
     }
