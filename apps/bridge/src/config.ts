@@ -3,6 +3,8 @@ import { z } from "zod";
 const envSchema = z.object({
   CLICKUP_API_TOKEN: z.string().min(1).optional(),
   CLICKUP_BASE_URL: z.string().url().optional(),
+  CLICKUP_REPO_URL: z.string().min(1).optional(),
+  REPO_URL: z.string().min(1).optional(),
   PORT: z.string().default("8787"),
   HOST: z.string().default("0.0.0.0"),
 });

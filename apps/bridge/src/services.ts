@@ -11,6 +11,7 @@ import { InMemoryWorkboard } from "@clickup-openclaw/workboard";
 import { randomUUID } from "node:crypto";
 
 import type { BridgeConfig } from "./config.js";
+import { resolveRepoUrl } from "./repo-url.js";
 
 const DEFAULT_LEASE_SECONDS = 15 * 60;
 
@@ -41,6 +42,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const logger = createLogger("bridge");
   const state = new InMemoryStateStore();
   const workboard = new InMemoryWorkboard();
+  const repoUrl = resolveRepoUrl(config);
   const clickup =
     config.CLICKUP_API_TOKEN === undefined
       ? undefined
@@ -85,6 +87,7 @@ export function createBridgeServices(config: BridgeConfig) {
         name: event.taskId,
         status: event.status ?? "unknown",
         listId: event.listId,
+        repoUrl,
         tags: [],
       },
       state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
@@ -146,6 +149,7 @@ export function createBridgeServices(config: BridgeConfig) {
           workboard_id: claim.workboardId,
           automation_state: "claimed",
           last_sync_at: now,
+          ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
         },
       });
     }
@@ -250,6 +254,7 @@ export function createBridgeServices(config: BridgeConfig) {
           last_error: input.outcome === "succeeded" ? "" : input.summary,
           run_id: claim?.runId ?? current.claim?.runId ?? "",
           workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
+          ...(repoUrl === undefined ? {} : { repo_url: repoUrl }),
         },
       });
     }

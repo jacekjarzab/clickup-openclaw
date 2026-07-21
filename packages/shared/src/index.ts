@@ -47,6 +47,7 @@ export const clickupTaskSchema = z.object({
   listId: z.string().min(1).optional(),
   priority: z.string().optional(),
   description: z.string().optional(),
+  repoUrl: z.string().min(1).optional(),
   tags: z.array(z.string()).default([]),
 });
 
