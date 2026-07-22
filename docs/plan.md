@@ -50,6 +50,16 @@ Recommended custom fields and metadata:
 - `last_sync_at`
 - `last_error`
 
+## Workspace Shape
+Use a boring, explicit hierarchy:
+- Space: `Clients`
+- Folder: one per client
+- List: one per project or engagement
+- Task: one work item
+- Subtask: only for decomposed steps
+
+That gives OpenClaw a stable place to sync from without inventing extra structure.
+
 ## OpenClaw Data Model
 Recommended internal state:
 - claim owner
@@ -134,4 +144,3 @@ Start with a boring, reliable v1:
 - Enforce strict idempotency.
 - Post a summary comment and status update on completion.
 - Post a failure comment on exceptions.
-

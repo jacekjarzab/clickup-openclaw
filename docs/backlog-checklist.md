@@ -5,6 +5,12 @@ This is the living build checklist. Update it as we complete items and discover 
 ## Phase 0: Foundations
 
 - [ ] Confirm ClickUp workspace structure
+  - Space: `Clients`
+  - Folder: one per client
+  - List: one per project or engagement
+  - Task: one work item
+  - Subtask: only for decomposed steps
+  - Confirm the status + field mapping before broad sync
 - [x] Define task statuses OpenClaw may consume
 - [x] Define custom fields used for automation
 - [x] Decide on webhooks, polling, or both
@@ -13,6 +19,9 @@ This is the living build checklist. Update it as we complete items and discover 
 ## Phase 1: Sync Layer
 
 - [ ] Read ClickUp tasks from a list or folder
+  - Start with one list, then generalize to a folder
+  - Hydrate tasks into internal jobs on first sync
+  - Keep updated tasks idempotent across webhook + poll paths
 - [x] Normalize tasks into internal job records
 - [x] Store idempotency keys for every event
 - [x] Detect status changes that should create or update jobs
