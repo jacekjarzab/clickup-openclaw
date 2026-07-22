@@ -76,6 +76,14 @@ type ProjectRoutingRule = ArtifactLinks & {
   priorityBoost: number | undefined;
 };
 
+type TriageRule = {
+  matchLabels: string[] | undefined;
+  matchStatuses: string[] | undefined;
+  matchListIds: string[] | undefined;
+  reason: string | undefined;
+  holdForHuman: boolean | undefined;
+};
+
 function normalizeKey(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -143,6 +151,32 @@ function parseWorkTypeTemplates(input: string | undefined): Record<string, WorkT
 
 function parseWorkflowTemplates(input: string | undefined): Record<string, WorkflowTemplate> {
   return parseWorkTypeTemplates(input);
+}
+
+function parseTriageRules(input: string | undefined): Record<string, TriageRule> {
+  if (input === undefined || input.trim().length === 0) {
+    return {};
+  }
+
+  const parsed = JSON.parse(input) as Record<string, unknown>;
+  const rules: Record<string, TriageRule> = {};
+
+  for (const [projectKey, rawRule] of Object.entries(parsed)) {
+    if (rawRule === null || typeof rawRule !== "object" || Array.isArray(rawRule)) {
+      continue;
+    }
+
+    const rule = rawRule as Record<string, unknown>;
+    rules[normalizeKey(projectKey)] = {
+      matchLabels: readStringArray(rule.matchLabels),
+      matchStatuses: readStringArray(rule.matchStatuses),
+      matchListIds: readStringArray(rule.matchListIds),
+      reason: readString(rule.reason),
+      holdForHuman: typeof rule.holdForHuman === "boolean" ? rule.holdForHuman : undefined,
+    };
+  }
+
+  return rules;
 }
 
 function priorityBucketScore(bucket: PriorityBucket | undefined): number {
@@ -334,6 +368,49 @@ function renderDecompositionPlan(label: string, steps: string[]): string {
   return lines.join("\n");
 }
 
+function resolveTriageRule(
+  input: {
+    projectKey?: string | undefined;
+    listId?: string | undefined;
+    status?: string | undefined;
+    tags: string[];
+  },
+  triageRules: Record<string, TriageRule>,
+): { projectKey: string | undefined; rule: TriageRule | undefined } {
+  const normalizedProjectKey = input.projectKey === undefined ? undefined : normalizeKey(input.projectKey);
+  const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
+  const normalizedStatus = normalizeStatus(input.status);
+  const normalizedTags = normalizeTags(input.tags);
+  const entries = Object.entries(triageRules);
+
+  if (normalizedProjectKey !== undefined) {
+    const directRule = entries.find(([key]) => normalizeKey(key) === normalizedProjectKey);
+    if (directRule !== undefined) {
+      return { projectKey: directRule[0], rule: directRule[1] };
+    }
+  }
+
+  const matched = entries.find(([key, rule]) => {
+    const normalizedKey = normalizeKey(key);
+    const matchLabels = rule.matchLabels?.map(normalizeKey) ?? [];
+    const matchStatuses = rule.matchStatuses?.map(normalizeKey) ?? [];
+    const matchListIds = rule.matchListIds?.map(normalizeKey) ?? [];
+
+    return (
+      normalizedProjectKey === normalizedKey ||
+      (normalizedListId !== undefined && matchListIds.includes(normalizedListId)) ||
+      (normalizedStatus.length > 0 && matchStatuses.includes(normalizedStatus)) ||
+      normalizedTags.some((tag) => matchLabels.includes(tag))
+    );
+  });
+
+  if (matched !== undefined) {
+    return { projectKey: matched[0], rule: matched[1] };
+  }
+
+  return { projectKey: input.projectKey, rule: undefined };
+}
+
 function findTemplateByTagMatch(
   tags: string[],
   templates: Record<string, WorkTypeTemplate>,
@@ -366,6 +443,7 @@ function extractPayloadWorkType(payload: Record<string, unknown> | undefined): s
 function buildClaimComment(
   workflowTemplateText?: string,
   decompositionText?: string,
+  triageText?: string,
   templateText?: string,
 ): string {
   const lines = ["Claimed by OpenClaw, starting work."];
@@ -376,6 +454,10 @@ function buildClaimComment(
 
   if (decompositionText !== undefined) {
     lines.push("", decompositionText);
+  }
+
+  if (triageText !== undefined) {
+    lines.push("", triageText);
   }
 
   if (templateText !== undefined) {
@@ -585,6 +667,7 @@ function buildTaskWriteBackFields(
     | "automationAllowed"
     | "approvalRequired"
     | "autoPicked"
+    | "triageReason"
     | "branchName"
     | "commitSha"
     | "commitUrl"
@@ -603,6 +686,7 @@ function buildTaskWriteBackFields(
     ...(task?.automationAllowed === undefined ? {} : { automation_allowed: task.automationAllowed }),
     ...(task?.approvalRequired === undefined ? {} : { approval_required: task.approvalRequired }),
     ...(task?.autoPicked === undefined ? {} : { auto_picked: task.autoPicked }),
+    ...(task?.triageReason === undefined ? {} : { triage_reason: task.triageReason }),
     ...(task?.branchName === undefined ? {} : { branch_name: task.branchName }),
     ...(task?.commitSha === undefined ? {} : { commit_sha: task.commitSha }),
     ...(task?.commitUrl === undefined ? {} : { commit_url: task.commitUrl }),
@@ -688,6 +772,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const projectRoutingRules = parseProjectRoutingRules(config.PROJECT_ROUTING_JSON);
   const workTypeTemplates = parseWorkTypeTemplates(config.WORK_TYPE_TEMPLATES_JSON);
   const workflowTemplates = parseWorkflowTemplates(config.WORKFLOW_TEMPLATES_JSON);
+  const triageRules = parseTriageRules(config.TRIAGE_RULES_JSON);
   const defaultWorkType = readString(config.DEFAULT_WORK_TYPE);
   const artifactLinks: ArtifactLinks = {};
   if (repoUrl !== undefined) {
@@ -724,7 +809,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     await clickup.postTaskComment(
       taskId,
-      buildClaimComment(job?.workflowTemplate, job?.decompositionPlan, job?.template),
+      buildClaimComment(job?.workflowTemplate, job?.decompositionPlan, job?.triageReason, job?.template),
     );
     await clickup.updateTaskMetadata(taskId, {
       status: "in progress",
@@ -785,6 +870,15 @@ export function createBridgeServices(config: BridgeConfig) {
       },
       projectRoutingRules,
     );
+    const triage = resolveTriageRule(
+      {
+        projectKey: fetchedTask?.projectKey ?? payloadProjectKey ?? defaultProjectKey,
+        listId: fetchedTask?.listId ?? event.listId,
+        status: currentStatus,
+        tags: mergedTags,
+      },
+      triageRules,
+    );
     const projectKey =
       routing.projectKey ?? fetchedTask?.projectKey ?? payloadProjectKey ?? defaultProjectKey;
     const automationAllowed =
@@ -792,6 +886,7 @@ export function createBridgeServices(config: BridgeConfig) {
     const approvalRequired =
       fetchedTask?.approvalRequired ??
       payloadApprovalRequired ??
+      (triage.rule?.holdForHuman === true ? true : undefined) ??
       (normalizeStatus(currentStatus) === "triage" ||
       normalizeTags(mergedTags).includes("needs-human") ||
       normalizeTags(mergedTags).includes("needs-review")
@@ -829,6 +924,11 @@ export function createBridgeServices(config: BridgeConfig) {
       workflowTemplateLabel !== undefined && decompositionSteps.length > 0
         ? renderDecompositionPlan(workflowTemplateLabel, decompositionSteps)
         : undefined;
+    const triageReason =
+      triage.rule?.reason ??
+      (triage.rule !== undefined
+        ? `Triage rule matched for ${triage.projectKey ?? projectKey ?? "unclassified"}`
+        : undefined);
     const priorityBucket = determinePriorityBucket({
       clickupPriority: fetchedTask?.priority,
       taskBucket: payloadPriorityBucket ?? fetchedTask?.priorityBucket,
@@ -869,6 +969,7 @@ export function createBridgeServices(config: BridgeConfig) {
         artifactUrl: fetchedTask?.artifactUrl ?? artifactUrl,
         docsUrl: fetchedTask?.docsUrl ?? docsUrl,
         designUrl: fetchedTask?.designUrl ?? designUrl,
+        triageReason,
         tags: mergedTags,
       },
       state:
@@ -887,10 +988,11 @@ export function createBridgeServices(config: BridgeConfig) {
       workType,
       workflowTemplate: workflowTemplateText,
       decompositionPlan: decompositionText,
+      triageReason,
       template: templateText,
     });
 
-    if ((autoPicked || isEligibleForOpenClaw(currentStatus)) && effectiveApprovalRequired !== true) {
+    if ((autoPicked || isEligibleForOpenClaw(currentStatus)) && effectiveApprovalRequired !== true && triage.rule === undefined) {
       workboard.enqueue({
         taskId: event.taskId,
         priority: priorityScore,

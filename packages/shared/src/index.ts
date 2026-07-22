@@ -59,6 +59,7 @@ export const clickupTaskSchema = z.object({
   automationAllowed: z.boolean().optional(),
   approvalRequired: z.boolean().optional(),
   autoPicked: z.boolean().optional(),
+  triageReason: z.string().min(1).optional(),
   priority: z.string().optional(),
   description: z.string().optional(),
   repoUrl: z.string().min(1).optional(),

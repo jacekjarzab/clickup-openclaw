@@ -14,6 +14,7 @@ export type JobRecord = {
   workType: string | undefined;
   workflowTemplate: string | undefined;
   decompositionPlan: string | undefined;
+  triageReason: string | undefined;
   template: string | undefined;
   retryCount: number;
   lastError: string | undefined;
@@ -35,6 +36,7 @@ export type JobPatch = {
   workType?: string | undefined;
   workflowTemplate?: string | undefined;
   decompositionPlan?: string | undefined;
+  triageReason?: string | undefined;
   template?: string | undefined;
   retryCount?: number | undefined;
   lastError?: string | undefined;
@@ -87,6 +89,9 @@ export class InMemoryStateStore {
     }
     if ("decompositionPlan" in patch) {
       next.decompositionPlan = patch.decompositionPlan;
+    }
+    if ("triageReason" in patch) {
+      next.triageReason = patch.triageReason;
     }
     if ("template" in patch) {
       next.template = patch.template;

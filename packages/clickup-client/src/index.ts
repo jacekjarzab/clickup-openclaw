@@ -143,6 +143,7 @@ export function createClickUpClient(options: ClickUpClientOptions) {
           const approvalRequiredField = body.custom_fields?.find(
             (field) => field.id === "approval_required",
           );
+          const triageReasonField = body.custom_fields?.find((field) => field.id === "triage_reason");
           const priorityBucketField = body.custom_fields?.find(
             (field) => field.id === "priority_bucket",
           );
@@ -170,6 +171,8 @@ export function createClickUpClient(options: ClickUpClientOptions) {
             commitSha: typeof commitShaField?.value === "string" ? commitShaField.value : undefined,
             commitUrl: typeof commitUrlField?.value === "string" ? commitUrlField.value : undefined,
             prNumber: parseNumberField(prNumberField?.value),
+            triageReason:
+              typeof triageReasonField?.value === "string" ? triageReasonField.value : undefined,
             priority: body.priority,
             description: body.description,
             repoUrl: typeof repoUrlField?.value === "string" ? repoUrlField.value : undefined,

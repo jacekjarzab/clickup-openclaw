@@ -608,6 +608,82 @@ test("bridge routes by label and status, honors priority queues, and blocks appr
   }
 });
 
+test("bridge applies smarter triage rules and writes the reason back to ClickUp", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+
+    const taskId = String(url).split("/").pop() ?? "";
+    if (taskId === "task-triage" && (init?.method ?? "GET") === "GET") {
+      return {
+        ok: true,
+        json: async () => ({
+          id: "task-triage",
+          name: "Task Triage",
+          status: { status: "ready for openclaw" },
+          list: { id: "list-1" },
+          priority: "normal",
+          tags: [{ name: "client-review" }],
+          custom_fields: [{ id: "project_key", value: "web" }],
+        }),
+      } as Response;
+    }
+
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      TRIAGE_RULES_JSON: JSON.stringify({
+        web: {
+          matchLabels: ["client-review"],
+          reason: "Needs client review before automation",
+          holdForHuman: true,
+        },
+      }),
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-triage",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const job = services.listJobs().find((item) => item.task.id === "task-triage");
+    assert.equal(job?.task.approvalRequired, true);
+    assert.equal(job?.task.triageReason, "Needs client review before automation");
+    assert.equal(services.getMetricsSnapshot().queueDepth, 0);
+
+    const claim = await services.manualClaimJob("task-triage");
+    assert.ok(claim);
+
+    const putRequest = requests.find((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "PUT" && String(request.url).endsWith("/task/task-triage");
+    });
+    assert.ok(putRequest);
+
+    const putBody = JSON.parse(String(putRequest?.init?.body)) as {
+      custom_fields?: Array<{ id: string; value: unknown }>;
+      status?: string;
+    };
+    assert.equal(putBody.status, "in progress");
+    assert.deepEqual(putBody.custom_fields?.find((field) => field.id === "triage_reason"), {
+      id: "triage_reason",
+      value: "Needs client review before automation",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bridge dashboard metrics include priority and failure breakdowns", async () => {
   const originalFetch = globalThis.fetch;
 
