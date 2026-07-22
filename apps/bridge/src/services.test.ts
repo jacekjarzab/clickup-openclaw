@@ -758,6 +758,81 @@ test("bridge applies smarter triage rules and writes the reason back to ClickUp"
   }
 });
 
+test("bridge syncs a ClickUp list idempotently into jobs", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+
+    if (String(url).includes("/list/list-1/task")) {
+      return {
+        ok: true,
+        json: async () => ({
+          tasks: [
+            {
+              id: "task-sync",
+            },
+          ],
+          last_page: true,
+        }),
+      } as Response;
+    }
+
+    if (String(url).endsWith("/task/task-sync")) {
+      return {
+        ok: true,
+        json: async () => ({
+          id: "task-sync",
+          name: "Synced task",
+          status: { status: "ready for openclaw" },
+          list: { id: "list-1" },
+          priority: "high",
+          date_updated: "2026-07-22T10:00:00.000Z",
+          custom_fields: [
+            { id: "project_key", value: "web" },
+            { id: "priority_bucket", value: "high" },
+          ],
+        }),
+      } as Response;
+    }
+
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    const first = await services.syncList("list-1");
+    assert.equal(first.discovered, 1);
+    assert.equal(first.accepted, 1);
+    assert.equal(first.duplicate, 0);
+    assert.equal(services.listJobs().length, 1);
+    assert.equal(services.listJobs()[0]?.task.id, "task-sync");
+    assert.equal(services.listJobs()[0]?.task.projectKey, "web");
+
+    const second = await services.syncList("list-1");
+    assert.equal(second.discovered, 1);
+    assert.equal(second.accepted, 0);
+    assert.equal(second.duplicate, 1);
+    assert.equal(services.listJobs().length, 1);
+    assert.equal(services.getMetricsSnapshot().queueDepth, 1);
+
+    const commentRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "POST" && String(request.url).endsWith("/comment");
+    });
+    assert.equal(commentRequests.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bridge dashboard metrics include priority and failure breakdowns", async () => {
   const originalFetch = globalThis.fetch;
 

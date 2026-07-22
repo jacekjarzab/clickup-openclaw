@@ -68,6 +68,7 @@ export const clickupTaskSchema = z.object({
   commitSha: z.string().min(1).optional(),
   commitUrl: z.string().min(1).optional(),
   prNumber: z.number().int().positive().optional(),
+  updatedAt: z.string().optional(),
   artifactUrl: z.string().min(1).optional(),
   docsUrl: z.string().min(1).optional(),
   designUrl: z.string().min(1).optional(),

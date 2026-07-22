@@ -52,6 +52,10 @@ const completeSchema = z.object({
   summary: z.string().min(1),
 });
 
+const syncListSchema = z.object({
+  listId: z.string().min(1),
+});
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const services = createBridgeServices(config);
@@ -66,6 +70,16 @@ async function main(): Promise<void> {
 
   app.post("/clickup/webhook", async (request, reply) => {
     const result = await services.ingestWebhook(request.body);
+    return reply.code(202).send(result);
+  });
+
+  app.post("/clickup/list-sync", async (request, reply) => {
+    const input = syncListSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const result = await services.syncList(input.data.listId);
     return reply.code(202).send(result);
   });
 

@@ -18,7 +18,7 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 1: Sync Layer
 
-- [ ] Read ClickUp tasks from a list or folder
+- [x] Read ClickUp tasks from a list or folder
   - Start with one list, then generalize to a folder
   - Hydrate tasks into internal jobs on first sync
   - Keep updated tasks idempotent across webhook + poll paths

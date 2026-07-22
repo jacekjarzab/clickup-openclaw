@@ -127,6 +127,8 @@ export function createClickUpClient(options: ClickUpClientOptions) {
             list?: { id: string };
             priority?: string;
             description?: string;
+            date_updated?: string;
+            updated_at?: string;
             tags?: Array<{ name: string }>;
             custom_fields?: Array<{ id: string; value?: unknown }>;
           };
@@ -173,6 +175,7 @@ export function createClickUpClient(options: ClickUpClientOptions) {
             prNumber: parseNumberField(prNumberField?.value),
             triageReason:
               typeof triageReasonField?.value === "string" ? triageReasonField.value : undefined,
+            updatedAt: body.date_updated ?? body.updated_at,
             priority: body.priority,
             description: body.description,
             repoUrl: typeof repoUrlField?.value === "string" ? repoUrlField.value : undefined,
@@ -203,6 +206,77 @@ export function createClickUpClient(options: ClickUpClientOptions) {
 
     async updateTaskStatus(taskId: string, status: string): Promise<void> {
       await updateTask(taskId, { status });
+    },
+
+    async getListTasks(listId: string): Promise<ClickUpTask[]> {
+      const tasks: ClickUpTask[] = [];
+      let page = 0;
+
+      while (true) {
+        const response = await requestWithRetry(
+          listId,
+          "fetch list tasks from",
+          () => fetch(`${baseUrl}/list/${listId}/task?page=${page}`, { headers }),
+          async (response) => {
+            const body = (await response.json()) as
+              | {
+                  tasks?: Array<{
+                    id: string;
+                    name: string;
+                    status: { status: string };
+                    list?: { id: string };
+                    priority?: string;
+                    description?: string;
+                    date_updated?: string;
+                    updated_at?: string;
+                    tags?: Array<{ name: string }>;
+                    custom_fields?: Array<{ id: string; value?: unknown }>;
+                  }>;
+                  last_page?: boolean;
+                }
+              | Array<{
+                  id: string;
+                  name: string;
+                  status: { status: string };
+                  list?: { id: string };
+                  priority?: string;
+                  description?: string;
+                  date_updated?: string;
+                  updated_at?: string;
+                  tags?: Array<{ name: string }>;
+                  custom_fields?: Array<{ id: string; value?: unknown }>;
+                }>;
+
+            const pageTasks = Array.isArray(body) ? body : body.tasks ?? [];
+            for (const taskBody of pageTasks) {
+              tasks.push(
+                {
+                  id: taskBody.id,
+                  name: taskBody.name ?? taskBody.id,
+                  status: taskBody.status?.status ?? "unknown",
+                  listId: taskBody.list?.id,
+                  priority: taskBody.priority,
+                  description: taskBody.description,
+                  updatedAt: taskBody.date_updated ?? taskBody.updated_at,
+                  tags: taskBody.tags?.map((tag) => tag.name) ?? [],
+                } as ClickUpTask,
+              );
+            }
+
+            return {
+              lastPage: Array.isArray(body) ? true : body.last_page ?? true,
+            };
+          },
+        );
+
+        if (response.lastPage) {
+          break;
+        }
+
+        page += 1;
+      }
+
+      return tasks;
     },
 
     async updateTaskMetadata(

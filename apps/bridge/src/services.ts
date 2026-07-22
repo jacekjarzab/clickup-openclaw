@@ -822,50 +822,48 @@ export function createBridgeServices(config: BridgeConfig) {
     });
   }
 
-  async function ingestWebhook(input: unknown) {
-    const event = clickupWebhookEventSchema.parse(input);
-    const idempotencyKey = deriveIdempotencyKey(event);
+  async function ingestTaskSnapshot(input: {
+    task: ClickUpTask;
+    sourceEvent: string;
+    listId?: string | undefined;
+    status?: string | undefined;
+    payload?: Record<string, unknown> | undefined;
+  }) {
     const receivedAt = nowIso();
+    const idempotencyKey = deriveIdempotencyKey({
+      event: input.sourceEvent,
+      taskId: input.task.id,
+      status: input.status ?? input.task.status,
+      updatedAt: input.task.updatedAt,
+    });
 
     if (state.hasIdempotencyKey(idempotencyKey)) {
-      logger.info("webhook duplicate ignored", { event: event.event, taskId: event.taskId });
+      logger.info("task snapshot duplicate ignored", { event: input.sourceEvent, taskId: input.task.id });
       return { accepted: true, duplicate: true };
     }
 
     state.recordIdempotency({
       key: idempotencyKey,
-      taskId: event.taskId,
-      event: event.event,
+      taskId: input.task.id,
+      event: input.sourceEvent,
       firstSeenAt: receivedAt,
       lastSeenAt: receivedAt,
     });
 
-    logger.info("webhook received", { event: event.event, taskId: event.taskId });
-
-    const fetchedTask = clickup === undefined ? undefined : await clickup.getTask(event.taskId).catch((error: unknown) => {
-      logger.warn("failed to fetch task details during ingest", {
-        taskId: event.taskId,
-        error: String(error),
-      });
-      return undefined;
-    });
-    const payloadRecord =
-      event.payload !== undefined && typeof event.payload === "object" && !Array.isArray(event.payload)
-        ? (event.payload as Record<string, unknown>)
-        : undefined;
+    const payloadRecord = input.payload;
     const payloadWorkType = extractPayloadWorkType(payloadRecord);
     const payloadTags = extractPayloadTags(payloadRecord);
     const payloadProjectKey = extractPayloadProjectKey(payloadRecord);
     const payloadPriorityBucket = extractPayloadPriorityBucket(payloadRecord);
     const payloadAutomationAllowed = extractPayloadAutomationAllowed(payloadRecord);
     const payloadApprovalRequired = extractPayloadApprovalRequired(payloadRecord);
-    const mergedTags = [...new Set([...(fetchedTask?.tags ?? []), ...payloadTags])];
+    const mergedTags = [...new Set([...(input.task.tags ?? []), ...payloadTags])];
     const taggedWorkType = mergedTags.length > 0 ? findTemplateByTagMatch(mergedTags, workTypeTemplates) : undefined;
-    const currentStatus = fetchedTask?.status ?? event.status ?? "unknown";
+    const currentStatus = input.task.status ?? input.status ?? "unknown";
     const routing = resolveRoutingRule(
       {
-        projectKey: fetchedTask?.projectKey ?? payloadProjectKey ?? defaultProjectKey,
-        listId: fetchedTask?.listId ?? event.listId,
+        projectKey: input.task.projectKey ?? payloadProjectKey ?? defaultProjectKey,
+        listId: input.task.listId ?? input.listId,
         status: currentStatus,
         tags: mergedTags,
       },
@@ -873,19 +871,18 @@ export function createBridgeServices(config: BridgeConfig) {
     );
     const triage = resolveTriageRule(
       {
-        projectKey: fetchedTask?.projectKey ?? payloadProjectKey ?? defaultProjectKey,
-        listId: fetchedTask?.listId ?? event.listId,
+        projectKey: input.task.projectKey ?? payloadProjectKey ?? defaultProjectKey,
+        listId: input.task.listId ?? input.listId,
         status: currentStatus,
         tags: mergedTags,
       },
       triageRules,
     );
     const projectKey =
-      routing.projectKey ?? fetchedTask?.projectKey ?? payloadProjectKey ?? defaultProjectKey;
-    const automationAllowed =
-      fetchedTask?.automationAllowed ?? payloadAutomationAllowed ?? undefined;
+      routing.projectKey ?? input.task.projectKey ?? payloadProjectKey ?? defaultProjectKey;
+    const automationAllowed = input.task.automationAllowed ?? payloadAutomationAllowed ?? undefined;
     const approvalRequired =
-      fetchedTask?.approvalRequired ??
+      input.task.approvalRequired ??
       payloadApprovalRequired ??
       (triage.rule?.holdForHuman === true ? true : undefined) ??
       (normalizeStatus(currentStatus) === "triage" ||
@@ -895,7 +892,7 @@ export function createBridgeServices(config: BridgeConfig) {
         : undefined);
     const workTypeSource =
       payloadWorkType ??
-      fetchedTask?.workType ??
+      input.task.workType ??
       routing.rule?.workType ??
       taggedWorkType ??
       defaultWorkType ??
@@ -931,8 +928,8 @@ export function createBridgeServices(config: BridgeConfig) {
         ? `Triage rule matched for ${triage.projectKey ?? projectKey ?? "unclassified"}`
         : undefined);
     const priorityBucket = determinePriorityBucket({
-      clickupPriority: fetchedTask?.priority,
-      taskBucket: payloadPriorityBucket ?? fetchedTask?.priorityBucket,
+      clickupPriority: input.task.priority,
+      taskBucket: payloadPriorityBucket ?? input.task.priorityBucket,
       routingRule: routing.rule,
       tags: mergedTags,
     });
@@ -948,10 +945,10 @@ export function createBridgeServices(config: BridgeConfig) {
 
     state.upsertJob({
       task: {
-        id: fetchedTask?.id ?? event.taskId,
-        name: fetchedTask?.name ?? event.taskId,
+        id: input.task.id,
+        name: input.task.name,
         status: currentStatus,
-        listId: fetchedTask?.listId ?? event.listId,
+        listId: input.task.listId ?? input.listId,
         projectKey: typeof projectKey === "string" ? projectKey : undefined,
         routingKey: routing.projectKey,
         workType,
@@ -959,17 +956,18 @@ export function createBridgeServices(config: BridgeConfig) {
         automationAllowed,
         approvalRequired: effectiveApprovalRequired,
         autoPicked,
-        priority: fetchedTask?.priority,
-        description: fetchedTask?.description,
-        repoUrl: fetchedTask?.repoUrl ?? repoUrl,
-        prUrl: fetchedTask?.prUrl ?? prUrl,
-        branchName: fetchedTask?.branchName,
-        commitSha: fetchedTask?.commitSha,
-        commitUrl: fetchedTask?.commitUrl,
-        prNumber: fetchedTask?.prNumber,
-        artifactUrl: fetchedTask?.artifactUrl ?? artifactUrl,
-        docsUrl: fetchedTask?.docsUrl ?? docsUrl,
-        designUrl: fetchedTask?.designUrl ?? designUrl,
+        priority: input.task.priority,
+        description: input.task.description,
+        repoUrl: input.task.repoUrl ?? repoUrl,
+        prUrl: input.task.prUrl ?? prUrl,
+        branchName: input.task.branchName,
+        commitSha: input.task.commitSha,
+        commitUrl: input.task.commitUrl,
+        prNumber: input.task.prNumber,
+        updatedAt: input.task.updatedAt,
+        artifactUrl: input.task.artifactUrl ?? artifactUrl,
+        docsUrl: input.task.docsUrl ?? docsUrl,
+        designUrl: input.task.designUrl ?? designUrl,
         triageReason,
         tags: mergedTags,
       },
@@ -995,7 +993,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     if ((autoPicked || isEligibleForOpenClaw(currentStatus)) && effectiveApprovalRequired !== true && triage.rule === undefined) {
       workboard.enqueue({
-        taskId: event.taskId,
+        taskId: input.task.id,
         priority: priorityScore,
         requestedAt: receivedAt,
         idempotencyKey,
@@ -1003,6 +1001,89 @@ export function createBridgeServices(config: BridgeConfig) {
     }
 
     return { accepted: true, duplicate: false };
+  }
+
+  async function ingestWebhook(input: unknown) {
+    const event = clickupWebhookEventSchema.parse(input);
+    logger.info("webhook received", { event: event.event, taskId: event.taskId });
+
+    const fetchedTask = clickup === undefined ? undefined : await clickup.getTask(event.taskId).catch((error: unknown) => {
+      logger.warn("failed to fetch task details during ingest", {
+        taskId: event.taskId,
+        error: String(error),
+      });
+      return undefined;
+    });
+    const fallbackTask: ClickUpTask =
+      fetchedTask ??
+      {
+        id: event.taskId,
+        name: event.taskId,
+        status: event.status ?? "unknown",
+        listId: event.listId,
+        tags: [],
+      };
+
+    return ingestTaskSnapshot({
+      task: fallbackTask,
+      sourceEvent: event.event,
+      listId: event.listId,
+      status: event.status,
+      payload: event.payload as Record<string, unknown> | undefined,
+    });
+  }
+
+  async function syncList(listId: string) {
+    if (clickup === undefined) {
+      throw new Error("ClickUp client not configured");
+    }
+
+    const discovered = await clickup.getListTasks(listId);
+    let accepted = 0;
+    let duplicate = 0;
+
+    for (const discoveredTask of discovered) {
+      const hydratedTask = await clickup.getTask(discoveredTask.id).catch((error: unknown) => {
+        logger.warn("failed to hydrate task during list sync", {
+          taskId: discoveredTask.id,
+          listId,
+          error: String(error),
+        });
+        return undefined;
+      });
+
+      if (hydratedTask === undefined) {
+        continue;
+      }
+
+      const result = await ingestTaskSnapshot({
+        task: hydratedTask,
+        sourceEvent: "taskUpdated",
+        listId,
+        status: hydratedTask.status,
+      });
+
+      if (result.accepted && !result.duplicate) {
+        accepted += 1;
+      }
+      if (result.duplicate) {
+        duplicate += 1;
+      }
+    }
+
+    logger.info("clickup list synced", {
+      listId,
+      discovered: discovered.length,
+      accepted,
+      duplicate,
+    });
+
+    return {
+      listId,
+      discovered: discovered.length,
+      accepted,
+      duplicate,
+    };
   }
 
   async function claimNextJob(input?: { leaseSeconds?: number | undefined }) {
@@ -1788,6 +1869,7 @@ export function createBridgeServices(config: BridgeConfig) {
     workboard,
     clickup,
     ingestWebhook,
+    syncList,
     claimNextJob,
     manualClaimJob,
     releaseJob,
