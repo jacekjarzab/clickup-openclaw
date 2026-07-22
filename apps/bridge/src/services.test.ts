@@ -421,6 +421,72 @@ test("bridge applies a work type template and surfaces dashboard aggregates", as
   }
 });
 
+test("bridge applies a workflow template by project key", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return new Response(
+      JSON.stringify({
+        id: "task-workflow",
+        name: "Workflow task",
+        status: { status: "ready for openclaw" },
+        list: { id: "list-1" },
+        priority: "normal",
+        description: "desc",
+        tags: [{ name: "client-saint" }],
+        custom_fields: [{ id: "project_key", value: "saint" }],
+      }),
+      { status: 200 },
+    ) as Response;
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      WORKFLOW_TEMPLATES_JSON: JSON.stringify({
+        saint: {
+          title: "Client workflow",
+          goal: "Keep the SAINT delivery path predictable",
+          context: "Follow the usual client handoff steps",
+          acceptanceCriteria: ["Work is routed through the SAINT template"],
+          constraints: ["Do not skip the client handoff"],
+          matchTags: ["client-saint"],
+        },
+      }),
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-workflow",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const claim = await services.claimNextJob();
+    assert.ok(claim);
+
+    const commentRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "POST" && String(request.url).endsWith("/comment");
+    });
+
+    assert.equal(commentRequests.length, 1);
+    const claimComment = JSON.parse(String(commentRequests[0]?.init?.body)) as {
+      comment_text?: string;
+    };
+    assert.match(claimComment.comment_text ?? "", /Workflow template for saint/i);
+    assert.match(claimComment.comment_text ?? "", /Client workflow/i);
+    assert.match(claimComment.comment_text ?? "", /Do not skip the client handoff/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bridge routes by label and status, honors priority queues, and blocks approval-gated auto pickup", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];

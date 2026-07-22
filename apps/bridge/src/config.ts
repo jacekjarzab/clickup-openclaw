@@ -9,6 +9,7 @@ const envSchema = z.object({
   CLICKUP_DOCS_URL: z.string().min(1).optional(),
   CLICKUP_DESIGN_URL: z.string().min(1).optional(),
   WORK_TYPE_TEMPLATES_JSON: z.string().optional(),
+  WORKFLOW_TEMPLATES_JSON: z.string().optional(),
   DEFAULT_WORK_TYPE: z.string().min(1).optional(),
   REPO_URL: z.string().min(1).optional(),
   PR_URL: z.string().min(1).optional(),

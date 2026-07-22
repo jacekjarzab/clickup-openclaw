@@ -85,10 +85,10 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 10: Smarter Automation
 
+- [x] Add workflow templates per client or project type
 - [ ] Add task decomposition into multi-step jobs
 - [ ] Add smarter triage rules
 - [ ] Add auto-escalation for long-blocked work
-- [ ] Add workflow templates per client or project type
 
 ## Immediate Next Steps
 

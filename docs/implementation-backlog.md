@@ -83,10 +83,10 @@
 
 ## Phase 10: Smarter Automation
 
+- Add workflow templates per client or project type
 - Add task decomposition into multi-step jobs
 - Add smarter triage rules
 - Add auto-escalation for long-blocked work
-- Add workflow templates per client or project type
 
 ## Recommended First Build Order
 

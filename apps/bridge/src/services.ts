@@ -28,6 +28,8 @@ type WorkTypeTemplate = {
   matchTags: string[] | undefined;
 };
 
+type WorkflowTemplate = WorkTypeTemplate;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -135,6 +137,10 @@ function parseWorkTypeTemplates(input: string | undefined): Record<string, WorkT
   }
 
   return templates;
+}
+
+function parseWorkflowTemplates(input: string | undefined): Record<string, WorkflowTemplate> {
+  return parseWorkTypeTemplates(input);
 }
 
 function priorityBucketScore(bucket: PriorityBucket | undefined): number {
@@ -273,6 +279,49 @@ function renderTaskTemplate(workType: string, template: WorkTypeTemplate): strin
   return lines.join("\n");
 }
 
+function renderWorkflowTemplate(projectKey: string, template: WorkflowTemplate): string {
+  const lines = [
+    `Workflow template for ${projectKey}:`,
+    "",
+    `- Title: ${template.title}`,
+    `- Goal: ${template.goal}`,
+  ];
+
+  if (template.context !== undefined) {
+    lines.push(`- Context: ${template.context}`);
+  }
+
+  if (template.acceptanceCriteria !== undefined && template.acceptanceCriteria.length > 0) {
+    lines.push("- Acceptance criteria:");
+    for (const item of template.acceptanceCriteria) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  if (template.constraints !== undefined && template.constraints.length > 0) {
+    lines.push("- Constraints:");
+    for (const item of template.constraints) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  if (template.links !== undefined && template.links.length > 0) {
+    lines.push("- Links:");
+    for (const item of template.links) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  if (template.notes !== undefined && template.notes.length > 0) {
+    lines.push("- Notes:");
+    for (const item of template.notes) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 function findTemplateByTagMatch(
   tags: string[],
   templates: Record<string, WorkTypeTemplate>,
@@ -302,8 +351,12 @@ function extractPayloadWorkType(payload: Record<string, unknown> | undefined): s
   );
 }
 
-function buildClaimComment(templateText?: string): string {
+function buildClaimComment(workflowTemplateText?: string, templateText?: string): string {
   const lines = ["Claimed by OpenClaw, starting work."];
+
+  if (workflowTemplateText !== undefined) {
+    lines.push("", workflowTemplateText);
+  }
 
   if (templateText !== undefined) {
     lines.push("", templateText);
@@ -614,6 +667,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const queueStallAlertMs = toNumber(config.QUEUE_STALL_ALERT_MS, 10 * 60 * 1000);
   const projectRoutingRules = parseProjectRoutingRules(config.PROJECT_ROUTING_JSON);
   const workTypeTemplates = parseWorkTypeTemplates(config.WORK_TYPE_TEMPLATES_JSON);
+  const workflowTemplates = parseWorkflowTemplates(config.WORKFLOW_TEMPLATES_JSON);
   const defaultWorkType = readString(config.DEFAULT_WORK_TYPE);
   const artifactLinks: ArtifactLinks = {};
   if (repoUrl !== undefined) {
@@ -648,7 +702,7 @@ export function createBridgeServices(config: BridgeConfig) {
     const projectKey = job?.task.projectKey ?? job?.task.routingKey;
     const links = resolveArtifactLinks(projectKey, artifactLinks, projectRoutingRules);
 
-    await clickup.postTaskComment(taskId, buildClaimComment(job?.template));
+    await clickup.postTaskComment(taskId, buildClaimComment(job?.workflowTemplate, job?.template));
     await clickup.updateTaskMetadata(taskId, {
       status: "in progress",
       customFields: buildTaskWriteBackFields(job?.task ?? {}, now, links, {
@@ -732,6 +786,18 @@ export function createBridgeServices(config: BridgeConfig) {
     const template = workType === undefined ? undefined : workTypeTemplates[workType];
     const templateText =
       workType !== undefined && template !== undefined ? renderTaskTemplate(workType, template) : undefined;
+    const workflowTemplateKey = projectKey === undefined ? undefined : normalizeKey(projectKey);
+    const workflowTemplateMatch =
+      mergedTags.length > 0 ? findTemplateByTagMatch(mergedTags, workflowTemplates) : undefined;
+    const workflowTemplateLabel = workflowTemplateKey ?? workType ?? workflowTemplateMatch;
+    const workflowTemplate =
+      (workflowTemplateKey === undefined ? undefined : workflowTemplates[workflowTemplateKey]) ??
+      (workType === undefined ? undefined : workflowTemplates[workType]) ??
+      (workflowTemplateMatch === undefined ? undefined : workflowTemplates[workflowTemplateMatch]);
+    const workflowTemplateText =
+      workflowTemplateLabel !== undefined && workflowTemplate !== undefined
+        ? renderWorkflowTemplate(workflowTemplateLabel, workflowTemplate)
+        : undefined;
     const priorityBucket = determinePriorityBucket({
       clickupPriority: fetchedTask?.priority,
       taskBucket: payloadPriorityBucket ?? fetchedTask?.priorityBucket,
@@ -788,6 +854,7 @@ export function createBridgeServices(config: BridgeConfig) {
       updatedAt: receivedAt,
       events: [],
       workType,
+      workflowTemplate: workflowTemplateText,
       template: templateText,
     });
 
