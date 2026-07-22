@@ -373,6 +373,7 @@ test("bridge applies a work type template and surfaces dashboard aggregates", as
           context: "Keep it small and explicit",
           acceptanceCriteria: ["Implementation is complete", "Validation is recorded"],
           constraints: ["Do not break existing flows"],
+          steps: ["Clarify the scope", "Implement the change", "Verify the result"],
           matchTags: ["feature"],
         },
       }),
@@ -404,6 +405,8 @@ test("bridge applies a work type template and surfaces dashboard aggregates", as
     };
     assert.match(claimComment.comment_text ?? "", /Task template for feature/i);
     assert.match(claimComment.comment_text ?? "", /Feature brief/i);
+    assert.match(claimComment.comment_text ?? "", /Decomposition plan for feature/i);
+    assert.match(claimComment.comment_text ?? "", /Step 1: Clarify the scope/i);
 
     await services.completeJob("task-template", {
       outcome: "succeeded",
@@ -453,6 +456,7 @@ test("bridge applies a workflow template by project key", async () => {
           context: "Follow the usual client handoff steps",
           acceptanceCriteria: ["Work is routed through the SAINT template"],
           constraints: ["Do not skip the client handoff"],
+          steps: ["Confirm the intake", "Execute the work", "Share the handoff"],
           matchTags: ["client-saint"],
         },
       }),
@@ -482,6 +486,8 @@ test("bridge applies a workflow template by project key", async () => {
     assert.match(claimComment.comment_text ?? "", /Workflow template for saint/i);
     assert.match(claimComment.comment_text ?? "", /Client workflow/i);
     assert.match(claimComment.comment_text ?? "", /Do not skip the client handoff/i);
+    assert.match(claimComment.comment_text ?? "", /Decomposition plan for saint/i);
+    assert.match(claimComment.comment_text ?? "", /Step 2: Execute the work/i);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -26,6 +26,7 @@ type WorkTypeTemplate = {
   links: string[] | undefined;
   notes: string[] | undefined;
   matchTags: string[] | undefined;
+  steps: string[] | undefined;
 };
 
 type WorkflowTemplate = WorkTypeTemplate;
@@ -133,6 +134,7 @@ function parseWorkTypeTemplates(input: string | undefined): Record<string, WorkT
       links: readStringArray(template.links),
       notes: readStringArray(template.notes),
       matchTags: readStringArray(template.matchTags),
+      steps: readStringArray(template.steps),
     };
   }
 
@@ -322,6 +324,16 @@ function renderWorkflowTemplate(projectKey: string, template: WorkflowTemplate):
   return lines.join("\n");
 }
 
+function renderDecompositionPlan(label: string, steps: string[]): string {
+  const lines = [`Decomposition plan for ${label}:`, ""];
+
+  for (const [index, step] of steps.entries()) {
+    lines.push(`- Step ${index + 1}: ${step}`);
+  }
+
+  return lines.join("\n");
+}
+
 function findTemplateByTagMatch(
   tags: string[],
   templates: Record<string, WorkTypeTemplate>,
@@ -351,11 +363,19 @@ function extractPayloadWorkType(payload: Record<string, unknown> | undefined): s
   );
 }
 
-function buildClaimComment(workflowTemplateText?: string, templateText?: string): string {
+function buildClaimComment(
+  workflowTemplateText?: string,
+  decompositionText?: string,
+  templateText?: string,
+): string {
   const lines = ["Claimed by OpenClaw, starting work."];
 
   if (workflowTemplateText !== undefined) {
     lines.push("", workflowTemplateText);
+  }
+
+  if (decompositionText !== undefined) {
+    lines.push("", decompositionText);
   }
 
   if (templateText !== undefined) {
@@ -702,7 +722,10 @@ export function createBridgeServices(config: BridgeConfig) {
     const projectKey = job?.task.projectKey ?? job?.task.routingKey;
     const links = resolveArtifactLinks(projectKey, artifactLinks, projectRoutingRules);
 
-    await clickup.postTaskComment(taskId, buildClaimComment(job?.workflowTemplate, job?.template));
+    await clickup.postTaskComment(
+      taskId,
+      buildClaimComment(job?.workflowTemplate, job?.decompositionPlan, job?.template),
+    );
     await clickup.updateTaskMetadata(taskId, {
       status: "in progress",
       customFields: buildTaskWriteBackFields(job?.task ?? {}, now, links, {
@@ -798,6 +821,14 @@ export function createBridgeServices(config: BridgeConfig) {
       workflowTemplateLabel !== undefined && workflowTemplate !== undefined
         ? renderWorkflowTemplate(workflowTemplateLabel, workflowTemplate)
         : undefined;
+    const decompositionSteps =
+      workflowTemplate?.steps ??
+      template?.steps ??
+      readStringArray(payloadRecord?.decompositionSteps ?? payloadRecord?.steps);
+    const decompositionText =
+      workflowTemplateLabel !== undefined && decompositionSteps.length > 0
+        ? renderDecompositionPlan(workflowTemplateLabel, decompositionSteps)
+        : undefined;
     const priorityBucket = determinePriorityBucket({
       clickupPriority: fetchedTask?.priority,
       taskBucket: payloadPriorityBucket ?? fetchedTask?.priorityBucket,
@@ -855,6 +886,7 @@ export function createBridgeServices(config: BridgeConfig) {
       events: [],
       workType,
       workflowTemplate: workflowTemplateText,
+      decompositionPlan: decompositionText,
       template: templateText,
     });
 
