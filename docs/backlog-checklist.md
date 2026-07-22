@@ -74,6 +74,22 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Add task templates by work type
 - [x] Add dashboards for queue health and completion rates
 
+## Phase 9: Routing and Priority
+
+- [ ] Auto-pick tasks by label or status
+- [ ] Add priority queues
+- [ ] Improve client and project mapping
+- [ ] Add PR and commit enrichment
+- [ ] Add human approval gates for risky actions
+- [ ] Expand metrics for throughput and failures
+
+## Phase 10: Smarter Automation
+
+- [ ] Add task decomposition into multi-step jobs
+- [ ] Add smarter triage rules
+- [ ] Add auto-escalation for long-blocked work
+- [ ] Add workflow templates per client or project type
+
 ## Immediate Next Steps
 
 - [x] Scaffold the bridge app with a real HTTP server
