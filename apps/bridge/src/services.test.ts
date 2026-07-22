@@ -247,6 +247,86 @@ test("bridge metrics snapshot tracks queue depth, claims, and throughput", async
   }
 });
 
+test("bridge applies a work type template and surfaces dashboard aggregates", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return new Response(
+      JSON.stringify({
+        id: "task-template",
+        name: "Template task",
+        status: { status: "ready for openclaw" },
+        list: { id: "list-1" },
+        priority: "normal",
+        description: "desc",
+        tags: [{ name: "feature" }],
+        custom_fields: [{ id: "work_type", value: "feature" }],
+      }),
+      { status: 200 },
+    ) as Response;
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      WORK_TYPE_TEMPLATES_JSON: JSON.stringify({
+        feature: {
+          title: "Feature brief",
+          goal: "Ship a user-facing change",
+          context: "Keep it small and explicit",
+          acceptanceCriteria: ["Implementation is complete", "Validation is recorded"],
+          constraints: ["Do not break existing flows"],
+          matchTags: ["feature"],
+        },
+      }),
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-template",
+      listId: "list-1",
+      status: "ready for openclaw",
+      payload: {
+        workType: "feature",
+      },
+    });
+
+    const claim = await services.claimNextJob();
+    assert.ok(claim);
+
+    const commentRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "POST" && String(request.url).endsWith("/comment");
+    });
+
+    assert.equal(commentRequests.length, 1);
+    const claimComment = JSON.parse(String(commentRequests[0]?.init?.body)) as {
+      comment_text?: string;
+    };
+    assert.match(claimComment.comment_text ?? "", /Task template for feature/i);
+    assert.match(claimComment.comment_text ?? "", /Feature brief/i);
+
+    await services.completeJob("task-template", {
+      outcome: "succeeded",
+      summary: "Done",
+    });
+
+    const dashboard = services.getDashboardSnapshot();
+    assert.equal(dashboard.queueHealth.queueDepth, 0);
+    assert.equal(dashboard.completionRates.totalJobs, 1);
+    assert.equal(dashboard.completionRates.succeededJobs, 1);
+    assert.equal(dashboard.completionRates.byWorkType[0]?.workType, "feature");
+    assert.equal(dashboard.completionRates.byWorkType[0]?.successRate, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bridge pause blocks automatic claim and manual claim/release still work", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];

@@ -15,6 +15,17 @@ import { resolveRepoUrl } from "./repo-url.js";
 
 const DEFAULT_LEASE_SECONDS = 15 * 60;
 
+type WorkTypeTemplate = {
+  title: string;
+  goal: string;
+  context: string | undefined;
+  acceptanceCriteria: string[] | undefined;
+  constraints: string[] | undefined;
+  links: string[] | undefined;
+  notes: string[] | undefined;
+  matchTags: string[] | undefined;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -47,6 +58,136 @@ type ArtifactLinks = {
 };
 
 type ProjectRoutingRule = ArtifactLinks;
+
+function normalizeKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
+function parseWorkTypeTemplates(input: string | undefined): Record<string, WorkTypeTemplate> {
+  if (input === undefined || input.trim().length === 0) {
+    return {};
+  }
+
+  const parsed = JSON.parse(input) as Record<string, unknown>;
+  const templates: Record<string, WorkTypeTemplate> = {};
+
+  for (const [workType, rawTemplate] of Object.entries(parsed)) {
+    if (rawTemplate === null || typeof rawTemplate !== "object" || Array.isArray(rawTemplate)) {
+      continue;
+    }
+
+    const template = rawTemplate as Record<string, unknown>;
+    const title = readString(template.title);
+    const goal = readString(template.goal);
+    if (title === undefined || goal === undefined) {
+      continue;
+    }
+
+    templates[normalizeKey(workType)] = {
+      title,
+      goal,
+      context: readString(template.context),
+      acceptanceCriteria: readStringArray(template.acceptanceCriteria),
+      constraints: readStringArray(template.constraints),
+      links: readStringArray(template.links),
+      notes: readStringArray(template.notes),
+      matchTags: readStringArray(template.matchTags),
+    };
+  }
+
+  return templates;
+}
+
+function renderTaskTemplate(workType: string, template: WorkTypeTemplate): string {
+  const lines = [`Task template for ${workType}:`, "", `- Title: ${template.title}`, `- Goal: ${template.goal}`];
+
+  if (template.context !== undefined) {
+    lines.push(`- Context: ${template.context}`);
+  }
+
+  if (template.acceptanceCriteria !== undefined && template.acceptanceCriteria.length > 0) {
+    lines.push("- Acceptance criteria:");
+    for (const item of template.acceptanceCriteria) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  if (template.constraints !== undefined && template.constraints.length > 0) {
+    lines.push("- Constraints:");
+    for (const item of template.constraints) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  if (template.links !== undefined && template.links.length > 0) {
+    lines.push("- Links:");
+    for (const item of template.links) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  if (template.notes !== undefined && template.notes.length > 0) {
+    lines.push("- Notes:");
+    for (const item of template.notes) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function findTemplateByTagMatch(
+  tags: string[],
+  templates: Record<string, WorkTypeTemplate>,
+): string | undefined {
+  const normalizedTags = tags.map(normalizeKey);
+
+  for (const [workType, template] of Object.entries(templates)) {
+    const candidates = [workType, ...(template.matchTags ?? [])].map(normalizeKey);
+    if (candidates.some((candidate) => normalizedTags.includes(candidate))) {
+      return workType;
+    }
+  }
+
+  return undefined;
+}
+
+function extractPayloadWorkType(payload: Record<string, unknown> | undefined): string | undefined {
+  if (payload === undefined) {
+    return undefined;
+  }
+
+  return (
+    readString(payload.workType) ??
+    readString(payload.template) ??
+    readString(payload.type) ??
+    readString(payload.work_type)
+  );
+}
+
+function buildClaimComment(templateText?: string): string {
+  const lines = ["Claimed by OpenClaw, starting work."];
+
+  if (templateText !== undefined) {
+    lines.push("", templateText);
+  }
+
+  return lines.join("\n");
+}
 
 function parseProjectRoutingRules(input: string | undefined): Record<string, ProjectRoutingRule> {
   if (input === undefined) {
@@ -174,6 +315,8 @@ export function createBridgeServices(config: BridgeConfig) {
   const heartbeatMonitorIntervalMs = Number(config.HEARTBEAT_MONITOR_INTERVAL_MS ?? "60000");
   const queueStallAlertMs = toNumber(config.QUEUE_STALL_ALERT_MS, 10 * 60 * 1000);
   const projectRoutingRules = parseProjectRoutingRules(config.PROJECT_ROUTING_JSON);
+  const workTypeTemplates = parseWorkTypeTemplates(config.WORK_TYPE_TEMPLATES_JSON);
+  const defaultWorkType = readString(config.DEFAULT_WORK_TYPE);
   const artifactLinks: ArtifactLinks = {};
   if (repoUrl !== undefined) {
     artifactLinks.repoUrl = repoUrl;
@@ -203,10 +346,11 @@ export function createBridgeServices(config: BridgeConfig) {
       return;
     }
 
-    const projectKey = state.getJob(taskId)?.task.projectKey;
+    const job = state.getJob(taskId);
+    const projectKey = job?.task.projectKey;
     const links = resolveArtifactLinks(projectKey, artifactLinks, projectRoutingRules);
 
-    await clickup.postTaskComment(taskId, "Claimed by OpenClaw, starting work.");
+    await clickup.postTaskComment(taskId, buildClaimComment(job?.template));
     await clickup.updateTaskMetadata(taskId, {
       status: "in progress",
       customFields: {
@@ -254,19 +398,46 @@ export function createBridgeServices(config: BridgeConfig) {
       });
     }
 
+    const fetchedTask = clickup === undefined ? undefined : await clickup.getTask(event.taskId).catch((error: unknown) => {
+      logger.warn("failed to fetch task details during ingest", {
+        taskId: event.taskId,
+        error: String(error),
+      });
+      return undefined;
+    });
+
+    const payloadWorkType = extractPayloadWorkType(
+      event.payload === undefined || typeof event.payload !== "object" || Array.isArray(event.payload)
+        ? undefined
+        : (event.payload as Record<string, unknown>),
+    );
+    const taggedWorkType = fetchedTask?.tags.length
+      ? findTemplateByTagMatch(fetchedTask.tags, workTypeTemplates)
+      : undefined;
+    const normalizedWorkType = normalizeKey(
+      payloadWorkType ?? fetchedTask?.workType ?? taggedWorkType ?? defaultWorkType ?? "",
+    );
+    const workType = normalizedWorkType.length > 0 ? normalizedWorkType : undefined;
+    const template = workType === undefined ? undefined : workTypeTemplates[workType];
+    const templateText =
+      workType !== undefined && template !== undefined ? renderTaskTemplate(workType, template) : undefined;
+
     state.upsertJob({
       task: {
-        id: event.taskId,
-        name: event.taskId,
-        status: event.status ?? "unknown",
-        listId: event.listId,
+        id: fetchedTask?.id ?? event.taskId,
+        name: fetchedTask?.name ?? event.taskId,
+        status: fetchedTask?.status ?? event.status ?? "unknown",
+        listId: fetchedTask?.listId ?? event.listId,
         projectKey: typeof projectKey === "string" ? projectKey : undefined,
-        repoUrl,
-        prUrl,
-        artifactUrl,
-        docsUrl,
-        designUrl,
-        tags: [],
+        workType,
+        priority: fetchedTask?.priority,
+        description: fetchedTask?.description,
+        repoUrl: fetchedTask?.repoUrl ?? repoUrl,
+        prUrl: fetchedTask?.prUrl ?? prUrl,
+        artifactUrl: fetchedTask?.artifactUrl ?? artifactUrl,
+        docsUrl: fetchedTask?.docsUrl ?? docsUrl,
+        designUrl: fetchedTask?.designUrl ?? designUrl,
+        tags: fetchedTask?.tags ?? [],
       },
       state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
       claim: undefined,
@@ -276,6 +447,8 @@ export function createBridgeServices(config: BridgeConfig) {
       lastEventAt: receivedAt,
       updatedAt: receivedAt,
       events: [],
+      workType,
+      template: templateText,
     });
 
     if (isEligibleForOpenClaw(event.status)) {
@@ -586,12 +759,19 @@ export function createBridgeServices(config: BridgeConfig) {
             }),
           );
 
+    const workTypeCounts = jobs.reduce<Record<string, number>>((counts, job) => {
+      const workType = job.workType ?? "unclassified";
+      counts[workType] = (counts[workType] ?? 0) + 1;
+      return counts;
+    }, {});
+
     return {
       now,
       queueDepth: queuedItems.length,
       activeClaims: claims.length,
       staleClaims: claims.filter((claim) => claim.leaseExpiresAt <= now).length,
       jobCounts,
+      workTypeCounts,
       throughput: {
         terminalJobs: terminalJobs.length,
         deadLetteredJobs: jobs.filter((job) => job.outcome === "deadLettered").length,
@@ -602,6 +782,87 @@ export function createBridgeServices(config: BridgeConfig) {
       },
       thresholds: {
         queueStallAlertMs,
+      },
+    };
+  }
+
+  function getDashboardSnapshot(input?: { now?: string | undefined }) {
+    const metrics = getMetricsSnapshot(input);
+    const now = metrics.now;
+    const jobs = state.listJobs();
+    const claims = workboard.listClaims();
+    const queuedItems = workboard.listQueuedItems();
+    const completedJobs = jobs.filter((job) => job.terminalAt !== undefined);
+    const successfulJobs = jobs.filter((job) => job.outcome === "succeeded");
+    const blockedJobs = jobs.filter((job) => job.outcome === "blocked");
+    const failedJobs = jobs.filter((job) => job.outcome === "failed");
+    const deadLetteredJobs = jobs.filter((job) => job.outcome === "deadLettered");
+
+    const byWorkType = Object.entries(
+      jobs.reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
+        const workType = job.workType ?? "unclassified";
+        groups[workType] = groups[workType] ?? [];
+        groups[workType].push(job);
+        return groups;
+      }, {}),
+    ).map(([workType, items]) => {
+      const terminal = items.filter((job) => job.terminalAt !== undefined);
+      const succeeded = items.filter((job) => job.outcome === "succeeded").length;
+      const blocked = items.filter((job) => job.outcome === "blocked").length;
+      const failed = items.filter((job) => job.outcome === "failed").length;
+      return {
+        workType,
+        total: items.length,
+        terminal: terminal.length,
+        succeeded,
+        blocked,
+        failed,
+        completionRate: items.length === 0 ? 0 : Number((terminal.length / items.length).toFixed(2)),
+        successRate: items.length === 0 ? 0 : Number((succeeded / items.length).toFixed(2)),
+      };
+    });
+
+    const byProject = Object.entries(
+      jobs.reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
+        const projectKey = job.task.projectKey ?? "unclassified";
+        groups[projectKey] = groups[projectKey] ?? [];
+        groups[projectKey].push(job);
+        return groups;
+      }, {}),
+    ).map(([projectKey, items]) => ({
+      projectKey,
+      total: items.length,
+      succeeded: items.filter((job) => job.outcome === "succeeded").length,
+      blocked: items.filter((job) => job.outcome === "blocked").length,
+      failed: items.filter((job) => job.outcome === "failed").length,
+      deadLettered: items.filter((job) => job.outcome === "deadLettered").length,
+    }));
+
+    return {
+      now,
+      queueHealth: {
+        queueDepth: metrics.queueDepth,
+        activeClaims: metrics.activeClaims,
+        staleClaims: metrics.staleClaims,
+        queueStallAlertMs: metrics.thresholds.queueStallAlertMs,
+        oldestQueuedAgeMs: metrics.latency.oldestQueuedAgeMs,
+        stalled: metrics.staleClaims > 0 || metrics.latency.oldestQueuedAgeMs >= metrics.thresholds.queueStallAlertMs,
+        jobCounts: metrics.jobCounts,
+        workTypeCounts: metrics.workTypeCounts,
+        claims,
+        queuedItems,
+      },
+      completionRates: {
+        totalJobs: jobs.length,
+        completedJobs: completedJobs.length,
+        succeededJobs: successfulJobs.length,
+        blockedJobs: blockedJobs.length,
+        failedJobs: failedJobs.length,
+        deadLetteredJobs: deadLetteredJobs.length,
+        completionRate: jobs.length === 0 ? 0 : Number((completedJobs.length / jobs.length).toFixed(2)),
+        successRate: jobs.length === 0 ? 0 : Number((successfulJobs.length / jobs.length).toFixed(2)),
+        byWorkType,
+        byProject,
       },
     };
   }
@@ -671,6 +932,7 @@ export function createBridgeServices(config: BridgeConfig) {
     state.mergeJob(taskId, {
       state: nextState,
       claim: undefined,
+      outcome: input.outcome,
       lastError: input.outcome === "succeeded" ? undefined : input.summary,
       terminalAt: completedAt,
       updatedAt: completedAt,
@@ -742,7 +1004,7 @@ export function createBridgeServices(config: BridgeConfig) {
     state.mergeJob(taskId, {
       state: "blocked",
       claim: undefined,
-      outcome: "failed",
+      outcome: "blocked",
       terminalAt: now,
       lastError: input.reason,
       updatedAt: now,
@@ -876,6 +1138,7 @@ export function createBridgeServices(config: BridgeConfig) {
     heartbeatMonitorIntervalMs,
     queueStallAlertMs,
     getMetricsSnapshot,
+    getDashboardSnapshot,
     listJobs: () => state.listJobs(),
   };
 }

@@ -100,12 +100,14 @@ export function createClickUpClient(options: ClickUpClientOptions) {
           const artifactUrlField = body.custom_fields?.find((field) => field.id === "artifact_url");
           const docsUrlField = body.custom_fields?.find((field) => field.id === "docs_url");
           const designUrlField = body.custom_fields?.find((field) => field.id === "design_url");
+          const workTypeField = body.custom_fields?.find((field) => field.id === "work_type");
 
           return {
             id: body.id,
             name: body.name,
             status: body.status.status,
             listId: body.list?.id,
+            workType: typeof workTypeField?.value === "string" ? workTypeField.value : undefined,
             priority: body.priority,
             description: body.description,
             repoUrl: typeof repoUrlField?.value === "string" ? repoUrlField.value : undefined,

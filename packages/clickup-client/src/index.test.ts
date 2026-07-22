@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createClickUpClient } from "./index.js";
 
-test("getTask maps repo_url, pr_url, artifact_url, docs_url, and design_url custom fields and omits them when absent", async () => {
+test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, and work_type custom fields and omits them when absent", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
 
@@ -26,6 +26,7 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, and design_url cust
           { id: "artifact_url", value: "https://preview.example.com/widgets" },
           { id: "docs_url", value: "https://docs.example.com/widgets" },
           { id: "design_url", value: "https://figma.com/file/widgets" },
+          { id: "work_type", value: "feature" },
         ],
       }),
     } as Response;
@@ -42,6 +43,7 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, and design_url cust
     assert.equal(task.artifactUrl, "https://preview.example.com/widgets");
     assert.equal(task.docsUrl, "https://docs.example.com/widgets");
     assert.equal(task.designUrl, "https://figma.com/file/widgets");
+    assert.equal(task.workType, "feature");
     assert.deepEqual(task.tags, ["ops"]);
 
     globalThis.fetch = (async () => {
@@ -62,6 +64,7 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, and design_url cust
     assert.equal(withoutRepo.artifactUrl, undefined);
     assert.equal(withoutRepo.docsUrl, undefined);
     assert.equal(withoutRepo.designUrl, undefined);
+    assert.equal(withoutRepo.workType, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

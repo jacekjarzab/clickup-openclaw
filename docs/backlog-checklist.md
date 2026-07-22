@@ -71,8 +71,8 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Support multiple workers
 - [x] Support multiple projects or clients
 - [x] Add per-project routing rules
-- [ ] Add task templates by work type
-- [ ] Add dashboards for queue health and completion rates
+- [x] Add task templates by work type
+- [x] Add dashboards for queue health and completion rates
 
 ## Immediate Next Steps
 

@@ -11,6 +11,8 @@ export type JobRecord = {
   state: WorkboardState;
   claim: ClaimRecord | undefined;
   idempotencyKey: string | undefined;
+  workType: string | undefined;
+  template: string | undefined;
   retryCount: number;
   lastError: string | undefined;
   lastEventAt: string | undefined;
@@ -28,6 +30,8 @@ export type JobPatch = {
   state?: WorkboardState | undefined;
   claim?: ClaimRecord | undefined;
   idempotencyKey?: string | undefined;
+  workType?: string | undefined;
+  template?: string | undefined;
   retryCount?: number | undefined;
   lastError?: string | undefined;
   lastEventAt?: string | undefined;
@@ -70,6 +74,12 @@ export class InMemoryStateStore {
     }
     if ("idempotencyKey" in patch) {
       next.idempotencyKey = patch.idempotencyKey;
+    }
+    if ("workType" in patch) {
+      next.workType = patch.workType;
+    }
+    if ("template" in patch) {
+      next.template = patch.template;
     }
     if ("retryCount" in patch && patch.retryCount !== undefined) {
       next.retryCount = patch.retryCount;

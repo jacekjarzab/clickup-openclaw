@@ -204,6 +204,9 @@ async function main(): Promise<void> {
   }));
 
   app.get("/workboard/metrics", async () => services.getMetricsSnapshot());
+  app.get("/dashboards", async () => services.getDashboardSnapshot());
+  app.get("/dashboards/queue-health", async () => services.getDashboardSnapshot().queueHealth);
+  app.get("/dashboards/completion-rates", async () => services.getDashboardSnapshot().completionRates);
 
   const port = Number(config.PORT);
   await app.listen({ host: config.HOST, port });
