@@ -769,6 +769,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const designUrl = config.DESIGN_URL ?? config.CLICKUP_DESIGN_URL;
   const heartbeatMonitorIntervalMs = Number(config.HEARTBEAT_MONITOR_INTERVAL_MS ?? "60000");
   const queueStallAlertMs = toNumber(config.QUEUE_STALL_ALERT_MS, 10 * 60 * 1000);
+  const blockedEscalationMs = toNumber(config.BLOCKED_ESCALATION_MS, 4 * 60 * 60 * 1000);
   const projectRoutingRules = parseProjectRoutingRules(config.PROJECT_ROUTING_JSON);
   const workTypeTemplates = parseWorkTypeTemplates(config.WORK_TYPE_TEMPLATES_JSON);
   const workflowTemplates = parseWorkflowTemplates(config.WORKFLOW_TEMPLATES_JSON);
@@ -1204,6 +1205,7 @@ export function createBridgeServices(config: BridgeConfig) {
       paused,
       heartbeatMonitorIntervalMs,
       queueStallAlertMs,
+      blockedEscalationMs,
     };
   }
 
@@ -1257,6 +1259,38 @@ export function createBridgeServices(config: BridgeConfig) {
       notified.push({ taskId: item.taskId, reason });
     }
 
+    const blockedJobs = state
+      .listJobs()
+      .filter((job) => job.state === "blocked" && job.blockedAt !== undefined);
+    const escalated: Array<{ taskId: string; reason: string }> = [];
+    const blockedEscalationThresholdMs = Math.max(0, blockedEscalationMs);
+
+    for (const job of blockedJobs) {
+      const blockedAtMs = Date.parse(job.blockedAt ?? "");
+      if (!Number.isFinite(blockedAtMs)) {
+        continue;
+      }
+
+      const elapsedMs = Date.parse(now) - blockedAtMs;
+      if (blockedEscalationThresholdMs === 0 || elapsedMs < blockedEscalationThresholdMs) {
+        continue;
+      }
+
+      const reason =
+        elapsedMs < 60_000
+          ? `Auto-escalated after ${Math.max(1, Math.round(elapsedMs / 1000))} seconds blocked.`
+          : `Auto-escalated after ${Math.max(1, Math.round(elapsedMs / 60000))} minutes blocked.`;
+      try {
+        await autoEscalateBlockedJob(job.task.id, reason, now);
+        escalated.push({ taskId: job.task.id, reason });
+      } catch (error) {
+        logger.warn("failed to auto-escalate blocked job", {
+          taskId: job.task.id,
+          error: String(error),
+        });
+      }
+    }
+
     const queuedItems = workboard.listQueuedItems();
     const queueAgeMs = queuedItems.reduce((oldest, item) => {
       const ageMs = Date.parse(now) - Date.parse(item.requestedAt);
@@ -1273,7 +1307,64 @@ export function createBridgeServices(config: BridgeConfig) {
       });
     }
 
-    return { now, reclaimed, notified };
+    return { now, reclaimed, notified, escalated };
+  }
+
+  async function autoEscalateBlockedJob(taskId: string, reason: string, now: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    const claim = workboard.getClaim(taskId);
+    const links = resolveArtifactLinks(current.task.projectKey ?? current.task.routingKey, artifactLinks, projectRoutingRules);
+    workboard.release(taskId);
+
+    state.mergeJob(taskId, {
+      state: "normalized",
+      claim: undefined,
+      blockedAt: undefined,
+      terminalAt: undefined,
+      outcome: undefined,
+      lastError: reason,
+      updatedAt: now,
+    });
+
+    try {
+      if (clickup !== undefined) {
+        await clickup.postTaskComment(taskId, `Auto-escalated into review by OpenClaw: ${reason}`);
+        await clickup.updateTaskMetadata(taskId, {
+          status: "review",
+          customFields: buildTaskWriteBackFields(current.task, now, links, {
+            automation_state: "candidate",
+            last_error: reason,
+            run_id: claim?.runId ?? current.claim?.runId ?? "",
+            workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
+          }),
+        });
+      }
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : String(error);
+      state.mergeJob(taskId, {
+        state: "deadLettered",
+        claim: undefined,
+        outcome: "deadLettered",
+        terminalAt: nowIso(),
+        lastError: failure,
+        deadLetteredAt: nowIso(),
+        deadLetterReason: failure,
+        updatedAt: nowIso(),
+      });
+      logger.error("job dead-lettered during auto escalation write-back", { taskId, reason: failure });
+      throw error;
+    }
+
+    logger.warn("job auto-escalated to review", { taskId, reason });
+    return {
+      taskId,
+      reviewAt: now,
+      reason,
+    };
   }
 
   function getMetricsSnapshot(input?: { now?: string | undefined }) {
@@ -1590,6 +1681,7 @@ export function createBridgeServices(config: BridgeConfig) {
       state: "blocked",
       claim: undefined,
       outcome: "blocked",
+      blockedAt: now,
       terminalAt: now,
       lastError: input.reason,
       updatedAt: now,
@@ -1646,6 +1738,7 @@ export function createBridgeServices(config: BridgeConfig) {
     state.mergeJob(taskId, {
       state: "normalized",
       claim: undefined,
+      blockedAt: undefined,
       terminalAt: undefined,
       outcome: undefined,
       lastError: input.reason,

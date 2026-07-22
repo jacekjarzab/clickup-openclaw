@@ -88,7 +88,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Add workflow templates per client or project type
 - [x] Add task decomposition into multi-step jobs
 - [x] Add smarter triage rules
-- [ ] Add auto-escalation for long-blocked work
+- [x] Add auto-escalation for long-blocked work
 
 ## Immediate Next Steps
 

@@ -297,6 +297,80 @@ test("bridge heartbeat monitoring reclaims expired claims and writes back a warn
   }
 });
 
+test("bridge auto-escalates long-blocked work into review", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      BLOCKED_ESCALATION_MS: "1000",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-escalate",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const blocked = await services.markBlockedJob("task-escalate", {
+      reason: "Waiting on client feedback",
+    });
+    assert.equal(blocked.blockedAt !== undefined, true);
+    assert.equal(services.listJobs()[0]?.state, "blocked");
+
+    const result = await services.monitorHeartbeats({
+      now: new Date(Date.parse(blocked.blockedAt) + 2000).toISOString(),
+    });
+
+    assert.equal(result.escalated.length, 1);
+    assert.equal(result.escalated[0]?.taskId, "task-escalate");
+    assert.equal(services.listJobs()[0]?.state, "normalized");
+    assert.equal(services.listJobs()[0]?.blockedAt, undefined);
+
+    const commentRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "POST" && String(request.url).endsWith("/comment");
+    });
+    const updateRequests = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "PUT";
+    });
+
+    assert.equal(commentRequests.length, 2);
+    assert.equal(updateRequests.length, 2);
+
+    const escalationCommentBody = JSON.parse(String(commentRequests[1]?.init?.body)) as {
+      comment_text?: string;
+    };
+    const escalationUpdateBody = JSON.parse(String(updateRequests[1]?.init?.body)) as {
+      status?: string;
+      custom_fields?: Array<{ id: string; value: unknown }>;
+    };
+
+    assert.match(escalationCommentBody.comment_text ?? "", /Auto-escalated into review by OpenClaw/i);
+    assert.equal(escalationUpdateBody.status, "review");
+    assert.deepEqual(
+      escalationUpdateBody.custom_fields?.find((field) => field.id === "automation_state"),
+      {
+        id: "automation_state",
+        value: "candidate",
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bridge metrics snapshot tracks queue depth, claims, and throughput", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch;

@@ -21,6 +21,7 @@ export type JobRecord = {
   lastEventAt: string | undefined;
   updatedAt: string;
   events: WorkerEvent[];
+  blockedAt?: string | undefined;
   claimedAt?: string | undefined;
   terminalAt?: string | undefined;
   outcome?: "succeeded" | "failed" | "blocked" | "deadLettered" | undefined;
@@ -43,6 +44,7 @@ export type JobPatch = {
   lastEventAt?: string | undefined;
   updatedAt?: string | undefined;
   events?: WorkerEvent[] | undefined;
+  blockedAt?: string | undefined;
   claimedAt?: string | undefined;
   terminalAt?: string | undefined;
   outcome?: "succeeded" | "failed" | "blocked" | "deadLettered" | undefined;
@@ -110,6 +112,9 @@ export class InMemoryStateStore {
     }
     if ("events" in patch && patch.events !== undefined) {
       next.events = patch.events.slice();
+    }
+    if ("blockedAt" in patch) {
+      next.blockedAt = patch.blockedAt;
     }
     if ("claimedAt" in patch) {
       next.claimedAt = patch.claimedAt;
