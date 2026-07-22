@@ -3,6 +3,7 @@ import { createLogger } from "@clickup-openclaw/observability";
 import {
   claimRecordSchema,
   clickupWebhookEventSchema,
+  type PriorityBucket,
   workerEventSchema,
   workboardStateSchema,
 } from "@clickup-openclaw/shared";
@@ -57,7 +58,19 @@ type ArtifactLinks = {
   designUrl?: string;
 };
 
-type ProjectRoutingRule = ArtifactLinks;
+type ProjectRoutingRule = ArtifactLinks & {
+  matchLabels: string[] | undefined;
+  matchStatuses: string[] | undefined;
+  matchListIds: string[] | undefined;
+  autoPickLabels: string[] | undefined;
+  autoPickStatuses: string[] | undefined;
+  approvalLabels: string[] | undefined;
+  approvalStatuses: string[] | undefined;
+  approvalRequired: boolean | undefined;
+  workType: string | undefined;
+  priorityBucket: PriorityBucket | undefined;
+  priorityBoost: number | undefined;
+};
 
 function normalizeKey(value: string): string {
   return value.trim().toLowerCase();
@@ -75,6 +88,17 @@ function readStringArray(value: unknown): string[] {
   return value
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter((item) => item.length > 0);
+}
+
+function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = normalizeKey(value);
+  return normalized === "low" || normalized === "normal" || normalized === "high" || normalized === "urgent"
+    ? normalized
+    : undefined;
 }
 
 function parseWorkTypeTemplates(input: string | undefined): Record<string, WorkTypeTemplate> {
@@ -110,6 +134,104 @@ function parseWorkTypeTemplates(input: string | undefined): Record<string, WorkT
   }
 
   return templates;
+}
+
+function priorityBucketScore(bucket: PriorityBucket | undefined): number {
+  switch (bucket) {
+    case "urgent":
+      return 400;
+    case "high":
+      return 300;
+    case "normal":
+      return 200;
+    case "low":
+      return 100;
+    default:
+      return 0;
+  }
+}
+
+function normalizeStatus(status: string | undefined): string {
+  return normalizeKey(status ?? "");
+}
+
+function normalizeTags(tags: string[]): string[] {
+  return tags.map(normalizeKey);
+}
+
+function extractPayloadTags(payload: Record<string, unknown> | undefined): string[] {
+  if (payload === undefined) {
+    return [];
+  }
+
+  const rawTags = payload.labels ?? payload.tags ?? payload.categories;
+  return readStringArray(rawTags);
+}
+
+function extractPayloadProjectKey(payload: Record<string, unknown> | undefined): string | undefined {
+  if (payload === undefined) {
+    return undefined;
+  }
+
+  return readString(payload.projectKey) ?? readString(payload.project_key) ?? readString(payload.clientKey);
+}
+
+function extractPayloadPriorityBucket(payload: Record<string, unknown> | undefined): PriorityBucket | undefined {
+  if (payload === undefined) {
+    return undefined;
+  }
+
+  return parsePriorityBucket(payload.priorityBucket ?? payload.priority_bucket);
+}
+
+function extractPayloadApprovalRequired(payload: Record<string, unknown> | undefined): boolean | undefined {
+  if (payload === undefined) {
+    return undefined;
+  }
+
+  const candidate = payload.approvalRequired ?? payload.approval_required;
+  if (typeof candidate === "boolean") {
+    return candidate;
+  }
+
+  if (typeof candidate === "string") {
+    const normalized = normalizeKey(candidate);
+    if (normalized === "true" || normalized === "yes" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "no" || normalized === "0") {
+      return false;
+    }
+  }
+
+  return undefined;
+}
+
+function extractPayloadAutomationAllowed(payload: Record<string, unknown> | undefined): boolean | undefined {
+  if (payload === undefined) {
+    return undefined;
+  }
+
+  const candidate = payload.automationAllowed ?? payload.automation_allowed;
+  if (typeof candidate === "boolean") {
+    return candidate;
+  }
+
+  if (typeof candidate === "string") {
+    const normalized = normalizeKey(candidate);
+    if (normalized === "true" || normalized === "yes" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "no" || normalized === "0") {
+      return false;
+    }
+  }
+
+  return undefined;
+}
+
+function scorePriorityBucket(bucket: PriorityBucket | undefined, boost = 0): number {
+  return priorityBucketScore(bucket) + boost;
 }
 
 function renderTaskTemplate(workType: string, template: WorkTypeTemplate): string {
@@ -203,7 +325,22 @@ function parseProjectRoutingRules(input: string | undefined): Record<string, Pro
     }
 
     const rule = rawRule as Record<string, unknown>;
-    const nextRule: ProjectRoutingRule = {};
+    const nextRule: ProjectRoutingRule = {
+      matchLabels: readStringArray(rule.matchLabels),
+      matchStatuses: readStringArray(rule.matchStatuses),
+      matchListIds: readStringArray(rule.matchListIds),
+      autoPickLabels: readStringArray(rule.autoPickLabels),
+      autoPickStatuses: readStringArray(rule.autoPickStatuses),
+      approvalLabels: readStringArray(rule.approvalLabels),
+      approvalStatuses: readStringArray(rule.approvalStatuses),
+      approvalRequired: typeof rule.approvalRequired === "boolean" ? rule.approvalRequired : undefined,
+      workType: readString(rule.workType),
+      priorityBucket: parsePriorityBucket(rule.priorityBucket),
+      priorityBoost:
+        typeof rule.priorityBoost === "number" && Number.isFinite(rule.priorityBoost)
+          ? rule.priorityBoost
+          : undefined,
+    };
 
     if (typeof rule.repoUrl === "string" && rule.repoUrl.trim().length > 0) {
       nextRule.repoUrl = rule.repoUrl;
@@ -225,6 +362,107 @@ function parseProjectRoutingRules(input: string | undefined): Record<string, Pro
   }
 
   return rules;
+}
+
+function resolveRoutingRule(
+  input: {
+    projectKey?: string | undefined;
+    listId?: string | undefined;
+    status?: string | undefined;
+    tags: string[];
+  },
+  routingRules: Record<string, ProjectRoutingRule>,
+): { projectKey: string | undefined; rule: ProjectRoutingRule | undefined } {
+  const normalizedProjectKey = input.projectKey === undefined ? undefined : normalizeKey(input.projectKey);
+  const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
+  const normalizedStatus = normalizeStatus(input.status);
+  const normalizedTags = normalizeTags(input.tags);
+
+  const entries = Object.entries(routingRules);
+
+  if (normalizedProjectKey !== undefined) {
+    const directRule = entries.find(([key]) => normalizeKey(key) === normalizedProjectKey);
+    if (directRule !== undefined) {
+      return { projectKey: directRule[0], rule: directRule[1] };
+    }
+  }
+
+  const matched = entries.find(([key, rule]) => {
+    const normalizedKey = normalizeKey(key);
+    const matchLabels = rule.matchLabels?.map(normalizeKey) ?? [];
+    const matchStatuses = rule.matchStatuses?.map(normalizeKey) ?? [];
+    const matchListIds = rule.matchListIds?.map(normalizeKey) ?? [];
+
+    return (
+      normalizedProjectKey === normalizedKey ||
+      (normalizedListId !== undefined && matchListIds.includes(normalizedListId)) ||
+      (normalizedStatus.length > 0 && matchStatuses.includes(normalizedStatus)) ||
+      normalizedTags.some((tag) => matchLabels.includes(tag))
+    );
+  });
+
+  if (matched !== undefined) {
+    return { projectKey: matched[0], rule: matched[1] };
+  }
+
+  return { projectKey: input.projectKey, rule: undefined };
+}
+
+function shouldAutoPickTask(input: {
+  status?: string | undefined;
+  tags: string[];
+  automationAllowed?: boolean | undefined;
+  rule?: ProjectRoutingRule | undefined;
+  approvalRequired?: boolean | undefined;
+}): boolean {
+  if (input.automationAllowed === true) {
+    return true;
+  }
+
+  const normalizedStatus = normalizeStatus(input.status);
+  const normalizedTags = normalizeTags(input.tags);
+  const rule = input.rule;
+
+  const statusEligible =
+    normalizedStatus === "ready for openclaw" ||
+    (rule?.autoPickStatuses?.map(normalizeKey) ?? []).includes(normalizedStatus);
+  const labelEligible =
+    normalizedTags.some((tag) => (rule?.autoPickLabels?.map(normalizeKey) ?? []).includes(tag)) ||
+    normalizedTags.includes("automation");
+  const approvalRequired =
+    input.approvalRequired === true ||
+    rule?.approvalRequired === true ||
+    normalizedTags.includes("needs-human") ||
+    normalizedTags.includes("needs-review") ||
+    normalizedStatus === "triage" ||
+    normalizedStatus === "needs-human" ||
+    normalizedStatus === "needs-review" ||
+    (rule?.approvalStatuses?.map(normalizeKey) ?? []).includes(normalizedStatus) ||
+    normalizedTags.some((tag) => (rule?.approvalLabels?.map(normalizeKey) ?? []).includes(tag));
+
+  return (statusEligible || labelEligible) && !approvalRequired;
+}
+
+function determinePriorityBucket(input: {
+  clickupPriority?: string | undefined;
+  taskBucket?: PriorityBucket | undefined;
+  routingRule?: ProjectRoutingRule | undefined;
+  tags: string[];
+}): PriorityBucket | undefined {
+  const normalizedTags = normalizeTags(input.tags);
+
+  return (
+    input.taskBucket ??
+    input.routingRule?.priorityBucket ??
+    parsePriorityBucket(input.clickupPriority) ??
+    (normalizedTags.includes("urgent")
+      ? "urgent"
+      : normalizedTags.includes("high")
+        ? "high"
+        : normalizedTags.includes("low")
+          ? "low"
+          : undefined)
+  );
 }
 
 function buildArtifactComment(summary: string, links: ArtifactLinks): string {
@@ -371,7 +609,6 @@ export function createBridgeServices(config: BridgeConfig) {
     const event = clickupWebhookEventSchema.parse(input);
     const idempotencyKey = deriveIdempotencyKey(event);
     const receivedAt = nowIso();
-    const projectKey = defaultProjectKey ?? event.payload?.projectKey;
 
     if (state.hasIdempotencyKey(idempotencyKey)) {
       logger.info("webhook duplicate ignored", { event: event.event, taskId: event.taskId });
@@ -388,16 +625,6 @@ export function createBridgeServices(config: BridgeConfig) {
 
     logger.info("webhook received", { event: event.event, taskId: event.taskId });
 
-    const current = state.getJob(event.taskId);
-    if (current === undefined) {
-      workboard.enqueue({
-        taskId: event.taskId,
-        priority: 0,
-        requestedAt: receivedAt,
-        idempotencyKey,
-      });
-    }
-
     const fetchedTask = clickup === undefined ? undefined : await clickup.getTask(event.taskId).catch((error: unknown) => {
       logger.warn("failed to fetch task details during ingest", {
         taskId: event.taskId,
@@ -405,41 +632,100 @@ export function createBridgeServices(config: BridgeConfig) {
       });
       return undefined;
     });
-
-    const payloadWorkType = extractPayloadWorkType(
-      event.payload === undefined || typeof event.payload !== "object" || Array.isArray(event.payload)
-        ? undefined
-        : (event.payload as Record<string, unknown>),
+    const payloadRecord =
+      event.payload !== undefined && typeof event.payload === "object" && !Array.isArray(event.payload)
+        ? (event.payload as Record<string, unknown>)
+        : undefined;
+    const payloadWorkType = extractPayloadWorkType(payloadRecord);
+    const payloadTags = extractPayloadTags(payloadRecord);
+    const payloadProjectKey = extractPayloadProjectKey(payloadRecord);
+    const payloadPriorityBucket = extractPayloadPriorityBucket(payloadRecord);
+    const payloadAutomationAllowed = extractPayloadAutomationAllowed(payloadRecord);
+    const payloadApprovalRequired = extractPayloadApprovalRequired(payloadRecord);
+    const mergedTags = [...new Set([...(fetchedTask?.tags ?? []), ...payloadTags])];
+    const taggedWorkType = mergedTags.length > 0 ? findTemplateByTagMatch(mergedTags, workTypeTemplates) : undefined;
+    const currentStatus = fetchedTask?.status ?? event.status ?? "unknown";
+    const routing = resolveRoutingRule(
+      {
+        projectKey: fetchedTask?.projectKey ?? payloadProjectKey ?? defaultProjectKey,
+        listId: fetchedTask?.listId ?? event.listId,
+        status: currentStatus,
+        tags: mergedTags,
+      },
+      projectRoutingRules,
     );
-    const taggedWorkType = fetchedTask?.tags.length
-      ? findTemplateByTagMatch(fetchedTask.tags, workTypeTemplates)
-      : undefined;
-    const normalizedWorkType = normalizeKey(
-      payloadWorkType ?? fetchedTask?.workType ?? taggedWorkType ?? defaultWorkType ?? "",
-    );
+    const projectKey =
+      routing.projectKey ?? fetchedTask?.projectKey ?? payloadProjectKey ?? defaultProjectKey;
+    const automationAllowed =
+      fetchedTask?.automationAllowed ?? payloadAutomationAllowed ?? undefined;
+    const approvalRequired =
+      fetchedTask?.approvalRequired ??
+      payloadApprovalRequired ??
+      (normalizeStatus(currentStatus) === "triage" ||
+      normalizeTags(mergedTags).includes("needs-human") ||
+      normalizeTags(mergedTags).includes("needs-review")
+        ? true
+        : undefined);
+    const workTypeSource =
+      payloadWorkType ??
+      fetchedTask?.workType ??
+      routing.rule?.workType ??
+      taggedWorkType ??
+      defaultWorkType ??
+      "";
+    const normalizedWorkType = normalizeKey(workTypeSource);
     const workType = normalizedWorkType.length > 0 ? normalizedWorkType : undefined;
     const template = workType === undefined ? undefined : workTypeTemplates[workType];
     const templateText =
       workType !== undefined && template !== undefined ? renderTaskTemplate(workType, template) : undefined;
+    const priorityBucket = determinePriorityBucket({
+      clickupPriority: fetchedTask?.priority,
+      taskBucket: payloadPriorityBucket ?? fetchedTask?.priorityBucket,
+      routingRule: routing.rule,
+      tags: mergedTags,
+    });
+    const priorityScore = scorePriorityBucket(priorityBucket, routing.rule?.priorityBoost ?? 0);
+    const autoPicked = shouldAutoPickTask({
+      status: currentStatus,
+      tags: mergedTags,
+      automationAllowed: automationAllowed ?? undefined,
+      rule: routing.rule,
+      approvalRequired,
+    });
+    const effectiveApprovalRequired = automationAllowed === true ? false : approvalRequired === true;
 
     state.upsertJob({
       task: {
         id: fetchedTask?.id ?? event.taskId,
         name: fetchedTask?.name ?? event.taskId,
-        status: fetchedTask?.status ?? event.status ?? "unknown",
+        status: currentStatus,
         listId: fetchedTask?.listId ?? event.listId,
         projectKey: typeof projectKey === "string" ? projectKey : undefined,
+        routingKey: routing.projectKey,
         workType,
+        priorityBucket,
+        automationAllowed,
+        approvalRequired: effectiveApprovalRequired,
+        autoPicked,
         priority: fetchedTask?.priority,
         description: fetchedTask?.description,
         repoUrl: fetchedTask?.repoUrl ?? repoUrl,
         prUrl: fetchedTask?.prUrl ?? prUrl,
+        branchName: fetchedTask?.branchName,
+        commitSha: fetchedTask?.commitSha,
+        commitUrl: fetchedTask?.commitUrl,
+        prNumber: fetchedTask?.prNumber,
         artifactUrl: fetchedTask?.artifactUrl ?? artifactUrl,
         docsUrl: fetchedTask?.docsUrl ?? docsUrl,
         designUrl: fetchedTask?.designUrl ?? designUrl,
-        tags: fetchedTask?.tags ?? [],
+        tags: mergedTags,
       },
-      state: isEligibleForOpenClaw(event.status) ? "eligible" : "normalized",
+      state:
+        autoPicked && effectiveApprovalRequired !== true
+          ? "eligible"
+          : isEligibleForOpenClaw(currentStatus)
+            ? "eligible"
+            : "normalized",
       claim: undefined,
       idempotencyKey,
       retryCount: 0,
@@ -451,10 +737,10 @@ export function createBridgeServices(config: BridgeConfig) {
       template: templateText,
     });
 
-    if (isEligibleForOpenClaw(event.status)) {
+    if ((autoPicked || isEligibleForOpenClaw(currentStatus)) && effectiveApprovalRequired !== true) {
       workboard.enqueue({
         taskId: event.taskId,
-        priority: 0,
+        priority: priorityScore,
         requestedAt: receivedAt,
         idempotencyKey,
       });
@@ -486,6 +772,8 @@ export function createBridgeServices(config: BridgeConfig) {
       leaseStartedAt: now,
       leaseExpiresAt: toLeaseExpiry(now, leaseSeconds),
       leaseSeconds,
+      priorityScore: next.priority,
+      priorityBucket: state.getJob(next.taskId)?.task.priorityBucket,
     });
 
     workboard.claim(claim);
@@ -557,6 +845,8 @@ export function createBridgeServices(config: BridgeConfig) {
       leaseStartedAt: now,
       leaseExpiresAt: toLeaseExpiry(now, leaseSeconds),
       leaseSeconds,
+      priorityScore: scorePriorityBucket(existing.task.priorityBucket),
+      priorityBucket: existing.task.priorityBucket,
     });
 
     workboard.claim(claim);
@@ -620,7 +910,10 @@ export function createBridgeServices(config: BridgeConfig) {
     if (input?.requeue === true) {
       workboard.enqueue({
         taskId,
-        priority: 0,
+        priority:
+          current.claim?.priorityScore ??
+          scorePriorityBucket(current.task.priorityBucket) ??
+          0,
         requestedAt: now,
       });
     }

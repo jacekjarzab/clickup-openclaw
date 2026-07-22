@@ -327,6 +327,121 @@ test("bridge applies a work type template and surfaces dashboard aggregates", as
   }
 });
 
+test("bridge routes by label and status, honors priority queues, and blocks approval-gated auto pickup", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+
+    const taskId = String(url).split("/").pop() ?? "";
+    const taskBodies: Record<string, unknown> = {
+      "task-a": {
+        id: "task-a",
+        name: "Task A",
+        status: { status: "new" },
+        list: { id: "list-1" },
+        priority: "low",
+        tags: [{ name: "automation" }],
+        custom_fields: [
+          { id: "project_key", value: "web" },
+          { id: "priority_bucket", value: "low" },
+        ],
+      },
+      "task-b": {
+        id: "task-b",
+        name: "Task B",
+        status: { status: "ready for openclaw" },
+        list: { id: "list-1" },
+        priority: "urgent",
+        tags: [],
+        custom_fields: [
+          { id: "project_key", value: "web" },
+          { id: "priority_bucket", value: "urgent" },
+        ],
+      },
+      "task-c": {
+        id: "task-c",
+        name: "Task C",
+        status: { status: "ready for openclaw" },
+        list: { id: "list-1" },
+        priority: "high",
+        tags: [{ name: "needs-human" }],
+        custom_fields: [
+          { id: "project_key", value: "web" },
+          { id: "priority_bucket", value: "high" },
+        ],
+      },
+    };
+
+    if (taskId in taskBodies) {
+      return {
+        ok: true,
+        json: async () => taskBodies[taskId],
+      } as Response;
+    }
+
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      PROJECT_ROUTING_JSON: JSON.stringify({
+        web: {
+          matchLabels: ["web"],
+          autoPickLabels: ["automation"],
+          autoPickStatuses: ["ready for openclaw"],
+          approvalLabels: ["needs-human"],
+          approvalRequired: false,
+          workType: "feature",
+        },
+      }),
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-a",
+      listId: "list-1",
+      status: "new",
+    });
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-b",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-c",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const jobs = services.listJobs();
+    assert.equal(jobs.find((job) => job.task.id === "task-a")?.task.projectKey, "web");
+    assert.equal(jobs.find((job) => job.task.id === "task-a")?.task.autoPicked, true);
+    assert.equal(jobs.find((job) => job.task.id === "task-a")?.task.priorityBucket, "low");
+    assert.equal(jobs.find((job) => job.task.id === "task-b")?.task.priorityBucket, "urgent");
+    assert.equal(jobs.find((job) => job.task.id === "task-c")?.task.approvalRequired, true);
+    assert.equal(services.getMetricsSnapshot().queueDepth, 2);
+
+    const firstClaim = await services.claimNextJob();
+    assert.equal(firstClaim?.taskId, "task-b");
+
+    const secondClaim = await services.claimNextJob();
+    assert.equal(secondClaim?.taskId, "task-a");
+
+    const manualClaim = await services.manualClaimJob("task-c");
+    assert.equal(manualClaim.taskId, "task-c");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bridge pause blocks automatic claim and manual claim/release still work", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
@@ -582,7 +697,7 @@ test("bridge ingests a project key from config or payload for future routing", a
     });
 
     const job = services.listJobs()[0];
-    assert.equal(job?.task.projectKey, "client-a");
+    assert.equal(job?.task.projectKey, "client-b");
   } finally {
     globalThis.fetch = originalFetch;
   }

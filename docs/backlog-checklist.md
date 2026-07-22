@@ -76,11 +76,11 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 9: Routing and Priority
 
-- [ ] Auto-pick tasks by label or status
-- [ ] Add priority queues
-- [ ] Improve client and project mapping
+- [x] Auto-pick tasks by label or status
+- [x] Add priority queues
+- [x] Improve client and project mapping
 - [ ] Add PR and commit enrichment
-- [ ] Add human approval gates for risky actions
+- [x] Add human approval gates for risky actions
 - [ ] Expand metrics for throughput and failures
 
 ## Phase 10: Smarter Automation

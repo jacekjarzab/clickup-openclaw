@@ -13,6 +13,12 @@ export type AutomationState = (typeof automationStates)[number];
 
 export const automationStateSchema = z.enum(automationStates);
 
+export const priorityBuckets = ["low", "normal", "high", "urgent"] as const;
+
+export type PriorityBucket = (typeof priorityBuckets)[number];
+
+export const priorityBucketSchema = z.enum(priorityBuckets);
+
 export const workboardStates = [
   "received",
   "normalized",
@@ -48,10 +54,19 @@ export const clickupTaskSchema = z.object({
   listId: z.string().min(1).optional(),
   projectKey: z.string().min(1).optional(),
   workType: z.string().min(1).optional(),
+  routingKey: z.string().min(1).optional(),
+  priorityBucket: priorityBucketSchema.optional(),
+  automationAllowed: z.boolean().optional(),
+  approvalRequired: z.boolean().optional(),
+  autoPicked: z.boolean().optional(),
   priority: z.string().optional(),
   description: z.string().optional(),
   repoUrl: z.string().min(1).optional(),
   prUrl: z.string().min(1).optional(),
+  branchName: z.string().min(1).optional(),
+  commitSha: z.string().min(1).optional(),
+  commitUrl: z.string().min(1).optional(),
+  prNumber: z.number().int().positive().optional(),
   artifactUrl: z.string().min(1).optional(),
   docsUrl: z.string().min(1).optional(),
   designUrl: z.string().min(1).optional(),
@@ -67,6 +82,8 @@ export const claimRecordSchema = z.object({
   leaseStartedAt: z.string().min(1),
   leaseExpiresAt: z.string().min(1),
   leaseSeconds: z.number().int().positive(),
+  priorityScore: z.number().int().optional(),
+  priorityBucket: priorityBucketSchema.optional(),
 });
 
 export type ClaimRecord = z.infer<typeof claimRecordSchema>;

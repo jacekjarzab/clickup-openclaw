@@ -1,4 +1,4 @@
-import type { ClickUpTask } from "@clickup-openclaw/shared";
+import type { ClickUpTask, PriorityBucket } from "@clickup-openclaw/shared";
 
 type ClickUpClientOptions = {
   token: string;
@@ -78,6 +78,41 @@ export function createClickUpClient(options: ClickUpClientOptions) {
     async () => undefined);
   }
 
+  function parseBooleanField(value: unknown): boolean | undefined {
+    if (typeof value === "boolean") {
+      return value;
+    }
+
+    if (typeof value === "number") {
+      return value !== 0;
+    }
+
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "true" || normalized === "yes" || normalized === "1") {
+        return true;
+      }
+      if (normalized === "false" || normalized === "no" || normalized === "0") {
+        return false;
+      }
+    }
+
+    return undefined;
+  }
+
+  function parseNumberField(value: unknown): number | undefined {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+
+    return undefined;
+  }
+
   return {
     async getTask(taskId: string): Promise<ClickUpTask> {
       return requestWithRetry(
@@ -101,13 +136,40 @@ export function createClickUpClient(options: ClickUpClientOptions) {
           const docsUrlField = body.custom_fields?.find((field) => field.id === "docs_url");
           const designUrlField = body.custom_fields?.find((field) => field.id === "design_url");
           const workTypeField = body.custom_fields?.find((field) => field.id === "work_type");
+          const projectKeyField = body.custom_fields?.find((field) => field.id === "project_key");
+          const automationAllowedField = body.custom_fields?.find(
+            (field) => field.id === "automation_allowed",
+          );
+          const approvalRequiredField = body.custom_fields?.find(
+            (field) => field.id === "approval_required",
+          );
+          const priorityBucketField = body.custom_fields?.find(
+            (field) => field.id === "priority_bucket",
+          );
+          const branchNameField = body.custom_fields?.find((field) => field.id === "branch_name");
+          const commitShaField = body.custom_fields?.find((field) => field.id === "commit_sha");
+          const commitUrlField = body.custom_fields?.find((field) => field.id === "commit_url");
+          const prNumberField = body.custom_fields?.find((field) => field.id === "pr_number");
+
+          const priorityBucket =
+            typeof priorityBucketField?.value === "string"
+              ? (priorityBucketField.value as PriorityBucket)
+              : undefined;
 
           return {
             id: body.id,
             name: body.name,
             status: body.status.status,
             listId: body.list?.id,
+            projectKey: typeof projectKeyField?.value === "string" ? projectKeyField.value : undefined,
             workType: typeof workTypeField?.value === "string" ? workTypeField.value : undefined,
+            automationAllowed: parseBooleanField(automationAllowedField?.value),
+            approvalRequired: parseBooleanField(approvalRequiredField?.value),
+            priorityBucket,
+            branchName: typeof branchNameField?.value === "string" ? branchNameField.value : undefined,
+            commitSha: typeof commitShaField?.value === "string" ? commitShaField.value : undefined,
+            commitUrl: typeof commitUrlField?.value === "string" ? commitUrlField.value : undefined,
+            prNumber: parseNumberField(prNumberField?.value),
             priority: body.priority,
             description: body.description,
             repoUrl: typeof repoUrlField?.value === "string" ? repoUrlField.value : undefined,

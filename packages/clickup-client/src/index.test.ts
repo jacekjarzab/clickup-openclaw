@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createClickUpClient } from "./index.js";
 
-test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, and work_type custom fields and omits them when absent", async () => {
+test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_type, project_key, and automation fields custom fields and omits them when absent", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
 
@@ -27,6 +27,13 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, and wor
           { id: "docs_url", value: "https://docs.example.com/widgets" },
           { id: "design_url", value: "https://figma.com/file/widgets" },
           { id: "work_type", value: "feature" },
+          { id: "project_key", value: "acme-web" },
+          { id: "automation_allowed", value: true },
+          { id: "priority_bucket", value: "urgent" },
+          { id: "branch_name", value: "feature/widgets" },
+          { id: "commit_sha", value: "abc123" },
+          { id: "commit_url", value: "https://github.com/acme/widgets/commit/abc123" },
+          { id: "pr_number", value: 42 },
         ],
       }),
     } as Response;
@@ -44,6 +51,13 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, and wor
     assert.equal(task.docsUrl, "https://docs.example.com/widgets");
     assert.equal(task.designUrl, "https://figma.com/file/widgets");
     assert.equal(task.workType, "feature");
+    assert.equal(task.projectKey, "acme-web");
+    assert.equal(task.automationAllowed, true);
+    assert.equal(task.priorityBucket, "urgent");
+    assert.equal(task.branchName, "feature/widgets");
+    assert.equal(task.commitSha, "abc123");
+    assert.equal(task.commitUrl, "https://github.com/acme/widgets/commit/abc123");
+    assert.equal(task.prNumber, 42);
     assert.deepEqual(task.tags, ["ops"]);
 
     globalThis.fetch = (async () => {
@@ -65,6 +79,9 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, and wor
     assert.equal(withoutRepo.docsUrl, undefined);
     assert.equal(withoutRepo.designUrl, undefined);
     assert.equal(withoutRepo.workType, undefined);
+    assert.equal(withoutRepo.projectKey, undefined);
+    assert.equal(withoutRepo.automationAllowed, undefined);
+    assert.equal(withoutRepo.priorityBucket, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

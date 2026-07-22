@@ -82,7 +82,7 @@ export class InMemoryWorkboard {
       if (!this.queuedTaskIds.has(taskId)) {
         const item = {
           taskId,
-          priority: 0,
+          priority: claim.priorityScore ?? 0,
           requestedAt: now,
         };
         this.queue.push(item);
