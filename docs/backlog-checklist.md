@@ -99,6 +99,14 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Add smarter triage rules
 - [x] Add auto-escalation for long-blocked work
 
+## Phase 11: Always-On Worker Runtime
+
+- [ ] Run the OpenClaw worker as a proper always-on daemon on the local machine
+- [ ] Connect the worker to the existing bridge/gateway over localhost or Tailscale
+- [ ] Add resilient reconnect, backoff, and startup health checks
+- [ ] Keep heartbeats and terminal reporting running continuously
+- [ ] Add a clean shutdown path that finalizes or cancels active runs safely
+
 ## Immediate Next Steps
 
 - [x] Scaffold the bridge app with a real HTTP server

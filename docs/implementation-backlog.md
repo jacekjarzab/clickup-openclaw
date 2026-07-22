@@ -88,6 +88,14 @@
 - Add smarter triage rules
 - Add auto-escalation for long-blocked work
 
+## Phase 11: Always-On Worker Runtime
+
+- Run the OpenClaw worker as a proper always-on daemon on the local machine
+- Connect the worker to the existing bridge/gateway over localhost or Tailscale
+- Add resilient reconnect, backoff, and startup health checks
+- Keep heartbeats and terminal reporting running continuously
+- Add a clean shutdown path that finalizes or cancels active runs safely
+
 ## Recommended First Build Order
 
 1. ClickUp read sync
@@ -98,6 +106,7 @@
 6. Failure handling
 7. Artifact link capture
 8. Manual controls
+9. Long-lived worker daemon
 
 ## Success Criteria
 
@@ -105,3 +114,4 @@
 - OpenClaw can finish a task and write the summary back.
 - Crashes and timeouts are visible in ClickUp.
 - The system can recover without duplicate task execution.
+- A worker can run continuously without human babysitting.
