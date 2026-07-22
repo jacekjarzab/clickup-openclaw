@@ -79,9 +79,9 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Auto-pick tasks by label or status
 - [x] Add priority queues
 - [x] Improve client and project mapping
-- [ ] Add PR and commit enrichment
+- [x] Add PR and commit enrichment
 - [x] Add human approval gates for risky actions
-- [ ] Expand metrics for throughput and failures
+- [x] Expand metrics for throughput and failures
 
 ## Phase 10: Smarter Automation
 

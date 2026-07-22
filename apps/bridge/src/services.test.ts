@@ -9,6 +9,34 @@ test("bridge write-back includes repo_url, pr_url, artifact_url, docs_url, and d
 
   globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
     requests.push({ url: String(url), init });
+    const taskId = String(url).split("/").pop() ?? "";
+
+    if (taskId === "task-1" && (init?.method ?? "GET") === "GET") {
+      return {
+        ok: true,
+        json: async () => ({
+          id: "task-1",
+          name: "Task 1",
+          status: { status: "ready for openclaw" },
+          list: { id: "list-1" },
+          priority: "normal",
+          tags: [{ name: "feature" }],
+          custom_fields: [
+            { id: "repo_url", value: "https://github.com/acme/widgets" },
+            { id: "pr_url", value: "https://github.com/acme/widgets/pull/42" },
+            { id: "artifact_url", value: "https://preview.example.com/widgets" },
+            { id: "docs_url", value: "https://docs.example.com/widgets" },
+            { id: "design_url", value: "https://figma.com/file/widgets" },
+            { id: "branch_name", value: "feature/widgets" },
+            { id: "commit_sha", value: "abc123" },
+            { id: "commit_url", value: "https://github.com/acme/widgets/commit/abc123" },
+            { id: "pr_number", value: 42 },
+            { id: "priority_bucket", value: "high" },
+          ],
+        }),
+      } as Response;
+    }
+
     return new Response(null, { status: 200 });
   }) as typeof fetch;
 
@@ -93,6 +121,34 @@ test("bridge write-back includes repo_url, pr_url, artifact_url, docs_url, and d
       },
     );
     assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "branch_name"),
+      {
+        id: "branch_name",
+        value: "feature/widgets",
+      },
+    );
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "commit_sha"),
+      {
+        id: "commit_sha",
+        value: "abc123",
+      },
+    );
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "commit_url"),
+      {
+        id: "commit_url",
+        value: "https://github.com/acme/widgets/commit/abc123",
+      },
+    );
+    assert.deepEqual(
+      firstUpdateBody.custom_fields?.find((field) => field.id === "pr_number"),
+      {
+        id: "pr_number",
+        value: 42,
+      },
+    );
+    assert.deepEqual(
       secondUpdateBody.custom_fields?.find((field) => field.id === "repo_url"),
       {
         id: "repo_url",
@@ -127,6 +183,44 @@ test("bridge write-back includes repo_url, pr_url, artifact_url, docs_url, and d
         value: "https://figma.com/file/widgets",
       },
     );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "branch_name"),
+      {
+        id: "branch_name",
+        value: "feature/widgets",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "commit_sha"),
+      {
+        id: "commit_sha",
+        value: "abc123",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "commit_url"),
+      {
+        id: "commit_url",
+        value: "https://github.com/acme/widgets/commit/abc123",
+      },
+    );
+    assert.deepEqual(
+      secondUpdateBody.custom_fields?.find((field) => field.id === "pr_number"),
+      {
+        id: "pr_number",
+        value: 42,
+      },
+    );
+
+    const commentBodies = requests.filter((request) => {
+      const method = request.init?.method ?? "GET";
+      return method === "POST" && String(request.url).endsWith("/comment");
+    });
+    const completionCommentBody = JSON.parse(String(commentBodies[1]?.init?.body)) as {
+      comment_text?: string;
+    };
+    assert.match(completionCommentBody.comment_text ?? "", /Git details:/i);
+    assert.match(completionCommentBody.comment_text ?? "", /Commit: abc123/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -437,6 +531,124 @@ test("bridge routes by label and status, honors priority queues, and blocks appr
 
     const manualClaim = await services.manualClaimJob("task-c");
     assert.equal(manualClaim.taskId, "task-c");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bridge dashboard metrics include priority and failure breakdowns", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    const taskId = String(url).split("/").pop() ?? "";
+    const taskBodies: Record<string, unknown> = {
+      "task-metrics-a": {
+        id: "task-metrics-a",
+        name: "Metrics A",
+        status: { status: "ready for openclaw" },
+        list: { id: "list-1" },
+        priority: "urgent",
+        tags: [],
+        custom_fields: [
+          { id: "project_key", value: "web" },
+          { id: "priority_bucket", value: "urgent" },
+        ],
+      },
+      "task-metrics-b": {
+        id: "task-metrics-b",
+        name: "Metrics B",
+        status: { status: "ready for openclaw" },
+        list: { id: "list-1" },
+        priority: "high",
+        tags: [],
+        custom_fields: [
+          { id: "project_key", value: "web" },
+          { id: "priority_bucket", value: "high" },
+        ],
+      },
+      "task-metrics-c": {
+        id: "task-metrics-c",
+        name: "Metrics C",
+        status: { status: "ready for openclaw" },
+        list: { id: "list-1" },
+        priority: "low",
+        tags: [],
+        custom_fields: [
+          { id: "project_key", value: "web" },
+          { id: "priority_bucket", value: "low" },
+        ],
+      },
+    };
+
+    if ((init?.method ?? "GET") === "GET" && taskId in taskBodies) {
+      return {
+        ok: true,
+        json: async () => taskBodies[taskId],
+      } as Response;
+    }
+
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const services = createBridgeServices({
+      CLICKUP_API_TOKEN: "token",
+      CLICKUP_BASE_URL: "https://clickup.test/api/v2",
+      PORT: "8787",
+      HOST: "0.0.0.0",
+    });
+
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-metrics-a",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-metrics-b",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+    await services.ingestWebhook({
+      event: "taskUpdated",
+      taskId: "task-metrics-c",
+      listId: "list-1",
+      status: "ready for openclaw",
+    });
+
+    const first = await services.claimNextJob();
+    assert.equal(first?.taskId, "task-metrics-a");
+    await services.completeJob("task-metrics-a", {
+      outcome: "succeeded",
+      summary: "Done",
+    });
+
+    const second = await services.claimNextJob();
+    assert.equal(second?.taskId, "task-metrics-b");
+    await services.completeJob("task-metrics-b", {
+      outcome: "failed",
+      summary: "Failed",
+    });
+
+    const third = await services.claimNextJob();
+    assert.equal(third?.taskId, "task-metrics-c");
+    await services.completeJob("task-metrics-c", {
+      outcome: "blocked",
+      summary: "Blocked",
+    });
+
+    const dashboard = services.getDashboardSnapshot();
+    assert.equal(dashboard.completionRates.totalJobs, 3);
+    assert.equal(dashboard.completionRates.succeededJobs, 1);
+    assert.equal(dashboard.completionRates.failedJobs, 1);
+    assert.equal(dashboard.completionRates.blockedJobs, 1);
+    assert.equal(dashboard.completionRates.failureRate, 0.67);
+    assert.equal(dashboard.queueHealth.priorityBucketCounts.urgent, 1);
+    assert.equal(dashboard.queueHealth.priorityBucketCounts.high, 1);
+    assert.equal(dashboard.queueHealth.priorityBucketCounts.low, 1);
+    assert.equal(dashboard.queueHealth.autoPickedJobs, 3);
+    assert.equal(dashboard.queueHealth.approvalRequiredJobs, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

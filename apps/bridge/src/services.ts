@@ -3,6 +3,7 @@ import { createLogger } from "@clickup-openclaw/observability";
 import {
   claimRecordSchema,
   clickupWebhookEventSchema,
+  type ClickUpTask,
   type PriorityBucket,
   workerEventSchema,
   workboardStateSchema,
@@ -465,7 +466,22 @@ function determinePriorityBucket(input: {
   );
 }
 
-function buildArtifactComment(summary: string, links: ArtifactLinks): string {
+function buildGitDetailLines(
+  task: Pick<ClickUpTask, "branchName" | "commitSha" | "commitUrl" | "prNumber">,
+): string[] {
+  return [
+    task.branchName === undefined ? undefined : `- Branch: ${task.branchName}`,
+    task.commitSha === undefined ? undefined : `- Commit: ${task.commitSha}`,
+    task.commitUrl === undefined ? undefined : `- Commit URL: ${task.commitUrl}`,
+    task.prNumber === undefined ? undefined : `- PR number: #${task.prNumber}`,
+  ].filter((line): line is string => line !== undefined);
+}
+
+function buildArtifactComment(
+  summary: string,
+  links: ArtifactLinks,
+  task?: Pick<ClickUpTask, "branchName" | "commitSha" | "commitUrl" | "prNumber">,
+): string {
   const lines = [summary];
   const linkLines = [
     links.repoUrl === undefined ? undefined : `- Repo: ${links.repoUrl}`,
@@ -479,7 +495,51 @@ function buildArtifactComment(summary: string, links: ArtifactLinks): string {
     lines.push("", "Useful links:", ...linkLines);
   }
 
+  const gitLines = task === undefined ? [] : buildGitDetailLines(task);
+  if (gitLines.length > 0) {
+    lines.push("", "Git details:", ...gitLines);
+  }
+
   return lines.join("\n");
+}
+
+function buildTaskWriteBackFields(
+  task: Partial<
+    Pick<
+    ClickUpTask,
+    | "routingKey"
+    | "priorityBucket"
+    | "automationAllowed"
+    | "approvalRequired"
+    | "autoPicked"
+    | "branchName"
+    | "commitSha"
+    | "commitUrl"
+    | "prNumber"
+    >
+  > | undefined,
+  now: string,
+  links: ArtifactLinks,
+  extraFields: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    last_sync_at: now,
+    ...extraFields,
+    ...(task?.routingKey === undefined ? {} : { routing_key: task.routingKey }),
+    ...(task?.priorityBucket === undefined ? {} : { priority_bucket: task.priorityBucket }),
+    ...(task?.automationAllowed === undefined ? {} : { automation_allowed: task.automationAllowed }),
+    ...(task?.approvalRequired === undefined ? {} : { approval_required: task.approvalRequired }),
+    ...(task?.autoPicked === undefined ? {} : { auto_picked: task.autoPicked }),
+    ...(task?.branchName === undefined ? {} : { branch_name: task.branchName }),
+    ...(task?.commitSha === undefined ? {} : { commit_sha: task.commitSha }),
+    ...(task?.commitUrl === undefined ? {} : { commit_url: task.commitUrl }),
+    ...(task?.prNumber === undefined ? {} : { pr_number: task.prNumber }),
+    ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
+    ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
+    ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
+    ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
+    ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
+  };
 }
 
 function buildHeartbeatComment(taskId: string, leaseExpiresAt: string): string {
@@ -585,23 +645,17 @@ export function createBridgeServices(config: BridgeConfig) {
     }
 
     const job = state.getJob(taskId);
-    const projectKey = job?.task.projectKey;
+    const projectKey = job?.task.projectKey ?? job?.task.routingKey;
     const links = resolveArtifactLinks(projectKey, artifactLinks, projectRoutingRules);
 
     await clickup.postTaskComment(taskId, buildClaimComment(job?.template));
     await clickup.updateTaskMetadata(taskId, {
       status: "in progress",
-      customFields: {
+      customFields: buildTaskWriteBackFields(job?.task ?? {}, now, links, {
         run_id: runId,
         workboard_id: claimWorkboardId,
         automation_state: "claimed",
-        last_sync_at: now,
-        ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
-        ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
-        ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
-        ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
-        ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
-      },
+      }),
     });
   }
 
@@ -1058,6 +1112,19 @@ export function createBridgeServices(config: BridgeConfig) {
       return counts;
     }, {});
 
+    const priorityBucketCounts = jobs.reduce<Record<string, number>>((counts, job) => {
+      const priorityBucket = job.task.priorityBucket ?? "unclassified";
+      counts[priorityBucket] = (counts[priorityBucket] ?? 0) + 1;
+      return counts;
+    }, {});
+
+    const autoPickedJobs = jobs.filter((job) => job.task.autoPicked === true).length;
+    const approvalRequiredJobs = jobs.filter((job) => job.task.approvalRequired === true).length;
+    const succeededJobs = jobs.filter((job) => job.outcome === "succeeded").length;
+    const failedJobs = jobs.filter((job) => job.outcome === "failed").length;
+    const blockedJobs = jobs.filter((job) => job.outcome === "blocked").length;
+    const deadLetteredJobs = jobs.filter((job) => job.outcome === "deadLettered").length;
+
     return {
       now,
       queueDepth: queuedItems.length,
@@ -1065,9 +1132,15 @@ export function createBridgeServices(config: BridgeConfig) {
       staleClaims: claims.filter((claim) => claim.leaseExpiresAt <= now).length,
       jobCounts,
       workTypeCounts,
+      priorityBucketCounts,
+      autoPickedJobs,
+      approvalRequiredJobs,
       throughput: {
         terminalJobs: terminalJobs.length,
-        deadLetteredJobs: jobs.filter((job) => job.outcome === "deadLettered").length,
+        succeededJobs,
+        failedJobs,
+        blockedJobs,
+        deadLetteredJobs,
       },
       latency: {
         averageClaimToTerminalMs,
@@ -1131,6 +1204,25 @@ export function createBridgeServices(config: BridgeConfig) {
       deadLettered: items.filter((job) => job.outcome === "deadLettered").length,
     }));
 
+    const byPriorityBucket = Object.entries(
+      jobs.reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
+        const priorityBucket = job.task.priorityBucket ?? "unclassified";
+        groups[priorityBucket] = groups[priorityBucket] ?? [];
+        groups[priorityBucket].push(job);
+        return groups;
+      }, {}),
+    ).map(([priorityBucket, items]) => ({
+      priorityBucket,
+      total: items.length,
+      completed: items.filter((job) => job.terminalAt !== undefined).length,
+      succeeded: items.filter((job) => job.outcome === "succeeded").length,
+      failed: items.filter((job) => job.outcome === "failed").length,
+      blocked: items.filter((job) => job.outcome === "blocked").length,
+    }));
+
+    const failureRate =
+      jobs.length === 0 ? 0 : Number(((failedJobs.length + blockedJobs.length + deadLetteredJobs.length) / jobs.length).toFixed(2));
+
     return {
       now,
       queueHealth: {
@@ -1142,6 +1234,9 @@ export function createBridgeServices(config: BridgeConfig) {
         stalled: metrics.staleClaims > 0 || metrics.latency.oldestQueuedAgeMs >= metrics.thresholds.queueStallAlertMs,
         jobCounts: metrics.jobCounts,
         workTypeCounts: metrics.workTypeCounts,
+        priorityBucketCounts: metrics.priorityBucketCounts,
+        autoPickedJobs: metrics.autoPickedJobs,
+        approvalRequiredJobs: metrics.approvalRequiredJobs,
         claims,
         queuedItems,
       },
@@ -1153,9 +1248,11 @@ export function createBridgeServices(config: BridgeConfig) {
         failedJobs: failedJobs.length,
         deadLetteredJobs: deadLetteredJobs.length,
         completionRate: jobs.length === 0 ? 0 : Number((completedJobs.length / jobs.length).toFixed(2)),
+        failureRate,
         successRate: jobs.length === 0 ? 0 : Number((successfulJobs.length / jobs.length).toFixed(2)),
         byWorkType,
         byProject,
+        byPriorityBucket,
       },
     };
   }
@@ -1215,7 +1312,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     const claim = workboard.getClaim(taskId);
     const completedAt = nowIso();
-    const links = resolveArtifactLinks(current.task.projectKey, artifactLinks, projectRoutingRules);
+    const links = resolveArtifactLinks(current.task.projectKey ?? current.task.routingKey, artifactLinks, projectRoutingRules);
     workboard.release(taskId);
 
     const nextState = workboardStateSchema.parse(
@@ -1233,7 +1330,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     try {
       if (clickup !== undefined) {
-        await clickup.postTaskComment(taskId, buildArtifactComment(input.summary, links));
+        await clickup.postTaskComment(taskId, buildArtifactComment(input.summary, links, current.task));
         await clickup.updateTaskMetadata(taskId, {
           status:
             input.outcome === "succeeded"
@@ -1241,23 +1338,17 @@ export function createBridgeServices(config: BridgeConfig) {
               : input.outcome === "blocked"
                 ? "blocked"
                 : "failed",
-          customFields: {
+          customFields: buildTaskWriteBackFields(current.task, completedAt, links, {
             automation_state:
               input.outcome === "succeeded"
                 ? "done"
                 : input.outcome === "blocked"
                   ? "blocked"
                   : "manual",
-            last_sync_at: completedAt,
             last_error: input.outcome === "succeeded" ? "" : input.summary,
             run_id: claim?.runId ?? current.claim?.runId ?? "",
             workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
-            ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
-            ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
-            ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
-            ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
-            ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
-          },
+          }),
         });
       }
     } catch (error) {
@@ -1291,7 +1382,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     const now = nowIso();
     const claim = workboard.getClaim(taskId);
-    const links = resolveArtifactLinks(current.task.projectKey, artifactLinks, projectRoutingRules);
+    const links = resolveArtifactLinks(current.task.projectKey ?? current.task.routingKey, artifactLinks, projectRoutingRules);
     workboard.release(taskId);
 
     state.mergeJob(taskId, {
@@ -1308,18 +1399,12 @@ export function createBridgeServices(config: BridgeConfig) {
         await clickup.postTaskComment(taskId, `Marked blocked by OpenClaw: ${input.reason}`);
         await clickup.updateTaskMetadata(taskId, {
           status: "blocked",
-          customFields: {
+          customFields: buildTaskWriteBackFields(current.task, now, links, {
             automation_state: "blocked",
-            last_sync_at: now,
             last_error: input.reason,
             run_id: claim?.runId ?? current.claim?.runId ?? "",
             workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
-            ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
-            ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
-            ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
-            ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
-            ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
-          },
+          }),
         });
       }
     } catch (error) {
@@ -1354,7 +1439,7 @@ export function createBridgeServices(config: BridgeConfig) {
 
     const now = nowIso();
     const claim = workboard.getClaim(taskId);
-    const links = resolveArtifactLinks(current.task.projectKey, artifactLinks, projectRoutingRules);
+    const links = resolveArtifactLinks(current.task.projectKey ?? current.task.routingKey, artifactLinks, projectRoutingRules);
     workboard.release(taskId);
 
     state.mergeJob(taskId, {
@@ -1371,18 +1456,12 @@ export function createBridgeServices(config: BridgeConfig) {
         await clickup.postTaskComment(taskId, `Forced into review by OpenClaw: ${input.reason}`);
         await clickup.updateTaskMetadata(taskId, {
           status: "review",
-          customFields: {
+          customFields: buildTaskWriteBackFields(current.task, now, links, {
             automation_state: "candidate",
-            last_sync_at: now,
             last_error: input.reason,
             run_id: claim?.runId ?? current.claim?.runId ?? "",
             workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
-            ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
-            ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
-            ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
-            ...(links.docsUrl === undefined ? {} : { docs_url: links.docsUrl }),
-            ...(links.designUrl === undefined ? {} : { design_url: links.designUrl }),
-          },
+          }),
         });
       }
     } catch (error) {
