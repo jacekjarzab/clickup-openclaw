@@ -6,14 +6,14 @@ Use ClickUp as the single source of truth while Bridge routes only automation-el
 ## Target Workflow
 - ClickUp manages tasks, statuses, and human-visible history.
 - Bridge watches ClickUp for automation-eligible tasks only.
-- Bridge creates or updates a matching OpenClaw Workboard card.
+- Bridge creates a matching OpenClaw Workboard card once and then reuses the stored card mapping.
 - Bridge triggers OpenClaw Workboard dispatch through the local host runtime.
 - The default OpenClaw agent picks up and processes the card.
 - Bridge watches Workboard state and writes the outcome back to ClickUp:
   - status updates
-  - summary comments
-  - proof and useful links
+  - status-based comments
   - blocker or failure context
+  - proof and useful links once enrichment is added
 
 ## Proposed Architecture
 - ClickUp sync layer
@@ -22,7 +22,7 @@ Use ClickUp as the single source of truth while Bridge routes only automation-el
   - Normalizes eligible tasks into Bridge job records.
 - Bridge orchestrator
   - Owns idempotency, task-to-card mapping, and dispatch decisions.
-  - Creates Workboard cards through the local `openclaw workboard` CLI.
+  - Creates Workboard cards through the local `openclaw workboard` CLI and reuses stored mappings on later syncs.
   - Polls or reconciles Workboard state and pushes results back to ClickUp.
 - OpenClaw Workboard
   - Owns queue state, runtime status, proof, and completion metadata.
@@ -76,7 +76,7 @@ Bridge should read back:
 
 ## Reporting Back to ClickUp
 On handoff:
-- optional comment: `Queued for OpenClaw automation`
+- no comment is posted today
 
 On running:
 - comment: `OpenClaw started work on this task`
@@ -86,13 +86,13 @@ During work:
 - optional progress comments only when they add value or expose a blocker
 
 On finish:
-- summary comment
-- proof and links to PRs, commits, docs, or deployments
+- terminal comment based on observed Workboard status
+- proof and link enrichment remains planned
 - status: `human-review`
 
 On failure or blocked work:
-- concise error or blocker summary
-- next-step note
+- concise blocker/status summary
+- next-step note remains planned
 - status: `blocked` or the agreed fallback review status
 
 ## Error Handling
@@ -113,7 +113,7 @@ On failure or blocked work:
 - Local CLI-based Bridge to Workboard integration
 - Workboard dispatch through the existing local OpenClaw Gateway
 - Status sync back to ClickUp
-- Completion comments with summaries and links
+- Status-based comments back to ClickUp
 - Basic error reporting and reconciliation
 
 ## Phase 2

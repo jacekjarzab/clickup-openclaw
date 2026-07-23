@@ -23,7 +23,7 @@ Bridge owns orchestration state and OpenClaw owns execution state.
   - `status`
   - `priority`
   - `labels`
-  - optional `agentId`
+  - optional `agentId` for future dedicated-agent routing
   - optional `boardId`
   - stable `idempotencyKey`
 - Bridge also keeps machine metadata alongside that card contract:
@@ -50,7 +50,7 @@ Bridge owns orchestration state and OpenClaw owns execution state.
 - Bridge API
   - private ingress
   - webhook receiver
-  - auth and verification
+  - no explicit auth in the current local-only service
 - Sync Service
   - event normalization
   - task reconciliation
@@ -61,7 +61,8 @@ Bridge owns orchestration state and OpenClaw owns execution state.
 - Workboard Watcher
   - reads card state
   - detects terminal outcomes
-  - captures summary, proof, artifacts, and blocker context
+  - syncs status back to ClickUp today
+  - summary, proof, artifact, and blocker-context enrichment is still planned
 - State Store
   - task-to-card mappings
   - idempotency keys
@@ -75,7 +76,7 @@ Bridge owns orchestration state and OpenClaw owns execution state.
 3. Sync Service deduplicates it.
 4. Sync Service checks whether the task is automation-eligible.
 5. Sync Service maps the task to a Bridge job record.
-6. OpenClaw Adapter creates or updates the matching Workboard card.
+6. OpenClaw Adapter creates the matching Workboard card once, then reuses the stored mapping on later syncs.
 7. OpenClaw Adapter triggers Workboard dispatch.
 8. The default OpenClaw agent picks up the card and performs the work.
 9. Workboard Watcher reads card state until a terminal result is reached.
@@ -85,15 +86,15 @@ Bridge owns orchestration state and OpenClaw owns execution state.
 ## Bridge States
 
 - `received`
-- `deduplicated`
 - `eligible`
 - `card_created`
 - `dispatched`
 - `running`
-- `review`
-- `done`
 - `blocked`
+- `completed`
 - `synced_back`
+
+Workboard card statuses are tracked separately as `triage`, `backlog`, `todo`, `scheduled`, `ready`, `running`, `review`, `blocked`, and `done`.
 
 ## Status Mapping
 
@@ -137,7 +138,7 @@ Successful OpenClaw completion does not move ClickUp directly to `done` in v1.
 
 On queue:
 
-- optional comment: `Queued for OpenClaw automation.`
+- no comment is posted today
 
 On running:
 
@@ -147,14 +148,14 @@ On running:
 On success:
 
 - status to `human-review`
-- summary comment
-- links to PRs, commits, docs, or deployments
+- terminal comment based on observed Workboard status
+- proof and artifact link enrichment is still planned
 
 On failure:
 
 - status to `blocked` or the agreed review fallback
-- concise error or blocker summary
-- next-step recommendation
+- concise blocker/status summary
+- next-step recommendation is still planned
 
 ## Security and Network Assumptions
 

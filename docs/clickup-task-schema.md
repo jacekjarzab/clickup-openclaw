@@ -100,7 +100,7 @@ For each OpenClaw-ready task, encourage the following structure:
 - One active Workboard card per task in Bridge-managed automation.
 - Card creation and dispatch must be idempotent.
 - Every successful handoff should write a `workboard_id`, and runtime sync should write `run_id` once OpenClaw exposes it.
-- Every finish or failure must write a summary comment back to ClickUp.
+- Every finish or failure must write a terminal status comment back to ClickUp.
 
 ## Comments Strategy
 
@@ -109,13 +109,12 @@ For each OpenClaw-ready task, encourage the following structure:
 - On major milestone:
   - short progress note with what changed
 - On finish:
-  - concise summary
-  - links to PRs, commits, docs, or deployments
+  - terminal status comment
+  - links to PRs, commits, docs, or deployments once artifact enrichment is implemented
   - successful automation returns the task to `human-review`
 - On failure:
-  - error class
-  - short cause
-  - next step
+  - blocker or status summary
+  - next step when enrichment is implemented
 
 ## Minimal MVP Fields
 

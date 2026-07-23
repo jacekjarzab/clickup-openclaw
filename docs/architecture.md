@@ -47,7 +47,8 @@ flowchart LR
   - Push task change events into the local Bridge when available.
 - Local Bridge API
   - Private ingress point.
-  - Validates auth, deduplicates events, and forwards normalized updates.
+  - Deduplicates events and forwards normalized updates.
+  - Stays on loopback or private network paths in v1; explicit auth is not implemented in the current service.
 - ClickUp Sync Service
   - Reconciles webhook and polling input.
   - Filters tasks using the agreed automation rules.
@@ -73,7 +74,7 @@ flowchart LR
 2. Webhook or poll input reaches the local Bridge.
 3. The sync service normalizes the task and stores an idempotency record.
 4. The sync service ignores non-automation tasks and forwards eligible ones to the OpenClaw adapter.
-5. The adapter creates or updates a matching Workboard card.
+5. The adapter creates a matching Workboard card if no mapping exists, then reuses that stored mapping on later syncs.
 6. The adapter triggers Workboard dispatch.
 7. The default OpenClaw agent picks up the card and starts execution.
 8. OpenClaw Workboard tracks running, review, done, blocked, and synced-back states plus proof and completion metadata.

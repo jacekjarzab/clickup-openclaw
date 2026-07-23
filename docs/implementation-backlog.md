@@ -25,8 +25,9 @@
 - Use a stable idempotency key derived from the ClickUp task id
 - Persist the ClickUp task id to Workboard card id mapping
 - Attach normalized task context to the card title, notes, labels, and priority
-- Trigger `openclaw workboard dispatch` after eligible card creation or update
-- Implemented: automatic handoff and dispatch now run during ingest/sync for eligible tasks
+- Trigger `openclaw workboard dispatch` after eligible card creation or later eligible syncs for already-mapped cards
+- Implemented: automatic handoff and dispatch now run during ingest and list sync for eligible tasks
+- Implemented: Bridge creates a card once and reuses the stored Workboard mapping on later syncs
 
 ## Phase 3: OpenClaw Execution Lifecycle
 
@@ -65,7 +66,7 @@
 ## Phase 7: Operator Controls
 
 - Add manual re-dispatch for eligible cards
-- Add a force-sync path from Workboard back to ClickUp
+- Implemented: force-sync path from Workboard back to ClickUp exists via `POST /openclaw/:taskId/sync`
 - Add a requeue path for tasks returned from review or failure
 - Add a mark-blocked path with reason text
 - Add a force-human-review path when OpenClaw output should be inspected without further automation
@@ -74,7 +75,7 @@
 
 - Support multiple ClickUp lists, folders, or projects with the same Bridge rules
 - Support per-project routing labels and metadata on Workboard cards
-- Add dashboards for queue health, sync lag, and completion rates
+- Implemented: dashboards exist for queue health and completion rates, including sync lag metrics
 - Add reporting for card lifecycle throughput and blocked-task categories
 - Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
 

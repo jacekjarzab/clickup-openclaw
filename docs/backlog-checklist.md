@@ -35,7 +35,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Use a stable idempotency key derived from the ClickUp task id
 - [x] Persist the ClickUp task id to Workboard card id mapping
 - [x] Attach normalized task context to the card title, notes, labels, and priority
-- [x] Automatically trigger `openclaw workboard dispatch` after eligible card creation or update
+- [x] Automatically trigger `openclaw workboard dispatch` after eligible card creation or later eligible syncs for already-mapped cards
 
 ## Phase 3: OpenClaw Execution Lifecycle
 
@@ -68,13 +68,13 @@ This is the living build checklist. Update it as we complete items and discover 
 - [ ] Add retry policy for transient ClickUp, Gateway, or CLI failures
 - [ ] Add dead-letter handling for repeated handoff failures
 - [ ] Add detection for stale Workboard cards and interrupted runs
-- [ ] Add visibility into dispatch failures, queue stalls, and sync lag
+- [x] Add visibility into dispatch failures, queue stalls, and sync lag
 - [ ] Add restart-safe reconciliation so Bridge can resume after crashes without duplicate card creation
 
 ## Phase 7: Operator Controls
 
 - [ ] Add manual re-dispatch for eligible cards
-- [ ] Add a force-sync path from Workboard back to ClickUp
+- [x] Add a force-sync path from Workboard back to ClickUp
 - [ ] Add a requeue path for tasks returned from review or failure
 - [ ] Add a mark-blocked path with reason text
 - [ ] Add a force-human-review path when OpenClaw output should be inspected without further automation
@@ -83,7 +83,7 @@ This is the living build checklist. Update it as we complete items and discover 
 
 - [ ] Support multiple ClickUp lists, folders, or projects with the same Bridge rules
 - [ ] Support per-project routing labels and metadata on Workboard cards
-- [ ] Add dashboards for queue health, sync lag, and completion rates
+- [x] Add dashboards for queue health, sync lag, and completion rates
 - [ ] Add reporting for card lifecycle throughput and blocked-task categories
 - [ ] Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
 
