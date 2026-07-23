@@ -33,7 +33,7 @@
 - Treat Workboard status, blocking, and completion as execution truth
 - Read Workboard card state and linked run data from Bridge
 - Detect terminal states: `review`, `done`, `blocked`
-- Capture worker summary, proof, artifacts, comments, and blocker context
+- Capture OpenClaw summary, proof, artifacts, comments, and blocker context
 - Handle Gateway restarts or stale cards by re-reading Workboard state before retrying Bridge actions
 
 ## Phase 4: ClickUp Write-Back
@@ -74,7 +74,7 @@
 - Support multiple ClickUp lists, folders, or projects with the same Bridge rules
 - Support per-project routing labels and metadata on Workboard cards
 - Add dashboards for queue health, sync lag, and completion rates
-- Add reporting for throughput and blocked-task categories
+- Add reporting for card lifecycle throughput and blocked-task categories
 - Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
 
 ## Recommended First Build Order

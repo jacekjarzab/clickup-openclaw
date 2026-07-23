@@ -8,7 +8,7 @@ Use ClickUp as the single source of truth while Bridge routes only automation-el
 - Bridge watches ClickUp for automation-eligible tasks only.
 - Bridge creates or updates a matching OpenClaw Workboard card.
 - Bridge triggers OpenClaw Workboard dispatch through the local host runtime.
-- The default OpenClaw agent claims and processes the card.
+- The default OpenClaw agent picks up and processes the card.
 - Bridge watches Workboard state and writes the outcome back to ClickUp:
   - status updates
   - summary comments
@@ -121,7 +121,7 @@ On failure or blocked work:
 - Add lower-latency event-driven Workboard sync
 - Add richer per-project routing rules
 - Add human approval gates for risky actions
-- Add metrics for throughput, failures, and stale or stuck cards
+- Add metrics for card lifecycle throughput, failures, and sync lag
 
 ## Early Decisions
 - The default OpenClaw agent handles Bridge work for now.

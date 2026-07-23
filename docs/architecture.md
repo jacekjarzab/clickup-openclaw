@@ -75,8 +75,8 @@ flowchart LR
 4. The sync service ignores non-automation tasks and forwards eligible ones to the OpenClaw adapter.
 5. The adapter creates or updates a matching Workboard card.
 6. The adapter triggers Workboard dispatch.
-7. The default OpenClaw agent claims the card and starts execution.
-8. OpenClaw Workboard tracks running state, proof, and completion metadata.
+7. The default OpenClaw agent picks up the card and starts execution.
+8. OpenClaw Workboard tracks running, review, done, blocked, and synced-back states plus proof and completion metadata.
 9. Bridge reads the terminal Workboard result and writes the summary back to ClickUp.
 10. The ClickUp task is moved to `human-review` on successful completion, or to the agreed blocked path on failure.
 

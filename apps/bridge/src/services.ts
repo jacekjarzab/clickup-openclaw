@@ -1399,17 +1399,28 @@ export function createBridgeServices(config: BridgeConfig) {
     const now = input?.now ?? nowIso();
     const jobs = state.listJobs();
     const queuedJobs = jobs.filter((job) => job.bridgeState === "eligible" || job.bridgeState === "card_created");
-    const activeJobs = jobs.filter(
-      (job) => job.bridgeState === "dispatched" || job.openClawCardStatus === "running" || job.state === "running",
-    );
+    const dispatchedJobs = jobs.filter((job) => job.bridgeState === "dispatched");
+    const runningJobs = jobs.filter((job) => job.bridgeState === "dispatched" || job.openClawCardStatus === "running" || job.state === "running");
+    const terminalJobs = jobs.filter((job) => {
+      const status = job.openClawCardStatus ?? job.state;
+      return status === "review" || status === "done" || status === "blocked";
+    });
+    const syncedBackJobs = jobs.filter((job) => job.bridgeState === "synced_back");
+
+    const cardLifecycleCounts = jobs.reduce<Record<string, number>>((counts, job) => {
+      const status = job.openClawCardStatus ?? job.bridgeState;
+      if (status === "eligible" || status === "card_created" || status === "dispatched" || status === "running" || status === "review" || status === "done" || status === "blocked" || status === "synced_back") {
+        counts[status] = (counts[status] ?? 0) + 1;
+      }
+      return counts;
+    }, {});
 
     const jobCounts = jobs.reduce<Record<string, number>>((counts, job) => {
       counts[job.state] = (counts[job.state] ?? 0) + 1;
       return counts;
     }, {});
 
-    const terminalJobs = jobs.filter((job) => job.terminalAt !== undefined && job.dispatchedAt !== undefined);
-    const averageClaimToTerminalMs =
+    const averageDispatchToTerminalMs =
       terminalJobs.length === 0
         ? 0
         : Math.round(
@@ -1418,14 +1429,16 @@ export function createBridgeServices(config: BridgeConfig) {
             }, 0) / terminalJobs.length,
           );
 
-    const oldestQueuedAgeMs =
-      queuedJobs.length === 0
+    const oldestUnsyncedAgeMs =
+      jobs.filter((job) => job.bridgeState !== "synced_back").length === 0
         ? 0
         : Math.max(
-            ...queuedJobs.map((job) => {
-              const ageMs = Date.parse(now) - Date.parse(job.updatedAt);
-              return Number.isFinite(ageMs) ? ageMs : 0;
-            }),
+            ...jobs
+              .filter((job) => job.bridgeState !== "synced_back")
+              .map((job) => {
+                const ageMs = Date.parse(now) - Date.parse(job.updatedAt);
+                return Number.isFinite(ageMs) ? ageMs : 0;
+              }),
           );
 
     const workTypeCounts = jobs.reduce<Record<string, number>>((counts, job) => {
@@ -1446,27 +1459,36 @@ export function createBridgeServices(config: BridgeConfig) {
     const failedJobs = jobs.filter((job) => job.outcome === "failed").length;
     const blockedJobs = jobs.filter((job) => job.outcome === "blocked").length;
     const deadLetteredJobs = jobs.filter((job) => job.outcome === "deadLettered").length;
+    const handoffFailures = jobs.filter((job) => job.outcome === "failed" && job.dispatchedAt === undefined).length;
+    const dispatchFailures = jobs.filter((job) => job.outcome === "failed" && job.dispatchedAt !== undefined).length;
 
     return {
       now,
-      queueDepth: queuedJobs.length,
-      activeClaims: activeJobs.length,
-      staleClaims: 0,
+      cardsQueued: queuedJobs.length,
+      cardsCreated: jobs.filter((job) => job.bridgeState === "card_created").length,
+      cardsDispatched: dispatchedJobs.length,
+      cardsRunning: runningJobs.length,
+      cardsTerminal: terminalJobs.length,
+      cardsSyncedBack: syncedBackJobs.length,
+      cardLifecycleCounts,
       jobCounts,
       workTypeCounts,
       priorityBucketCounts,
       autoPickedJobs,
       approvalRequiredJobs,
+      syncLagMs: oldestUnsyncedAgeMs,
       throughput: {
-        terminalJobs: terminalJobs.length,
+        terminalCards: terminalJobs.length,
         succeededJobs,
         failedJobs,
         blockedJobs,
         deadLetteredJobs,
+        dispatchFailures,
+        handoffFailures,
       },
       latency: {
-        averageClaimToTerminalMs,
-        oldestQueuedAgeMs,
+        averageDispatchToTerminalMs,
+        oldestUnsyncedAgeMs,
       },
       thresholds: {
         queueStallAlertMs,
@@ -1563,18 +1585,22 @@ export function createBridgeServices(config: BridgeConfig) {
     return {
       now,
       queueHealth: {
-        queueDepth: metrics.queueDepth,
-        activeClaims: metrics.activeClaims,
-        staleClaims: metrics.staleClaims,
+        cardsQueued: metrics.cardsQueued,
+        cardsCreated: metrics.cardsCreated,
+        cardsDispatched: metrics.cardsDispatched,
+        cardsRunning: metrics.cardsRunning,
+        cardsTerminal: metrics.cardsTerminal,
+        cardsSyncedBack: metrics.cardsSyncedBack,
         queueStallAlertMs: metrics.thresholds.queueStallAlertMs,
-        oldestQueuedAgeMs: metrics.latency.oldestQueuedAgeMs,
-        stalled: metrics.staleClaims > 0 || metrics.latency.oldestQueuedAgeMs >= metrics.thresholds.queueStallAlertMs,
+        oldestUnsyncedAgeMs: metrics.latency.oldestUnsyncedAgeMs,
+        stalled: metrics.latency.oldestUnsyncedAgeMs >= metrics.thresholds.queueStallAlertMs,
         jobCounts: metrics.jobCounts,
+        cardLifecycleCounts: metrics.cardLifecycleCounts,
         workTypeCounts: metrics.workTypeCounts,
         priorityBucketCounts: metrics.priorityBucketCounts,
         autoPickedJobs: metrics.autoPickedJobs,
         approvalRequiredJobs: metrics.approvalRequiredJobs,
-        claims: activeCards,
+        cards: activeCards,
         queuedItems,
       },
       completionRates: {

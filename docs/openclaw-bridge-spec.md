@@ -77,7 +77,7 @@ Bridge owns orchestration state and OpenClaw owns execution state.
 5. Sync Service maps the task to a Bridge job record.
 6. OpenClaw Adapter creates or updates the matching Workboard card.
 7. OpenClaw Adapter triggers Workboard dispatch.
-8. The default OpenClaw agent claims and performs the work.
+8. The default OpenClaw agent picks up the card and performs the work.
 9. Workboard Watcher reads card state until a terminal result is reached.
 10. Bridge posts the final outcome to ClickUp.
 11. State Store keeps the audit trail.
@@ -90,8 +90,9 @@ Bridge owns orchestration state and OpenClaw owns execution state.
 - `card_created`
 - `dispatched`
 - `running`
+- `review`
+- `done`
 - `blocked`
-- `completed`
 - `synced_back`
 
 ## Status Mapping
@@ -127,7 +128,7 @@ Successful OpenClaw completion does not move ClickUp directly to `done` in v1.
   - retry with backoff and record the error.
 - Gateway unavailable
   - do not create duplicate state; reconcile and retry once the Gateway is healthy.
-- Worker crash or blocked run
+- OpenClaw crash or blocked run
   - read Workboard terminal state and write the reason back to ClickUp.
 - Permanent failure
   - mark the task blocked or human-review with the reason attached.
@@ -170,12 +171,14 @@ Track at minimum:
 - event receive count
 - dedupe hit count
 - eligible task count
-- card create count
+- card created count
 - dispatch count
-- completed task count
-- blocked task count
+- running card count
+- terminal card count
+- synced-back count
+- blocked card count
 - sync lag
-- Gateway or CLI failure count
+- dispatch and handoff failure count
 - average processing time
 
 ## Implementation Notes

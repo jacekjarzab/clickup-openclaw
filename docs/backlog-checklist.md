@@ -43,7 +43,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Treat Workboard status, blocking, and completion as execution truth
 - [x] Read Workboard card state and linked run data from Bridge
 - [x] Detect terminal states: `review`, `done`, `blocked`
-- [ ] Capture worker summary, proof, artifacts, comments, and blocker context
+- [ ] Capture OpenClaw summary, proof, artifacts, comments, and blocker context
 - [ ] Handle Gateway restarts or stale cards by re-reading Workboard state before retrying Bridge actions
 
 ## Phase 4: ClickUp Write-Back
@@ -84,7 +84,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [ ] Support multiple ClickUp lists, folders, or projects with the same Bridge rules
 - [ ] Support per-project routing labels and metadata on Workboard cards
 - [ ] Add dashboards for queue health, sync lag, and completion rates
-- [ ] Add reporting for throughput and blocked-task categories
+- [ ] Add reporting for card lifecycle throughput and blocked-task categories
 - [ ] Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
 
 ## Replaced or Removed Work
@@ -93,14 +93,14 @@ This is the living build checklist. Update it as we complete items and discover 
   - OpenClaw Gateway is already the always-on runtime
   - Bridge should connect to the existing local Gateway, not invent a new daemon
 - [x] Remove Bridge-owned claim and lease logic from the plan
-  - Workboard owns claims, heartbeats, blocking, and completion
+  - Workboard owns queueing, blocking, completion, and synced-back state
 - [x] Remove the custom worker-runner architecture from the plan
-  - The default OpenClaw agent is the worker path for now
+  - The default OpenClaw agent is the execution path for now
 - [x] Remove the old Bridge worker and reporter apps from the repo
   - ClickUp write-back now happens in Bridge
-  - OpenClaw is the execution runtime, not the deleted local worker app
+  - OpenClaw is the execution runtime, not the deleted local execution app
 - [x] Remove the old public Bridge execution endpoints
-  - Bridge no longer exposes fake claim, lease, heartbeat, complete, or worker event routes
+  - Bridge no longer exposes fake claim, lease, heartbeat, complete, or execution event routes
 - [x] Remove the old internal Bridge claim/lease package and stale tests
   - The repo now keeps only the OpenClaw-backed execution path
 
