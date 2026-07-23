@@ -31,11 +31,11 @@ This is the living build checklist. Update it as we complete items and discover 
 ## Phase 2: Bridge to Workboard Handoff
 
 - [x] Create an OpenClaw adapter in Bridge using the local `openclaw workboard` CLI
-- [ ] Create Workboard cards only for automation-eligible ClickUp tasks
+- [ ] Automatically hand off only automation-eligible ClickUp tasks into Workboard card creation
 - [x] Use a stable idempotency key derived from the ClickUp task id
 - [x] Persist the ClickUp task id to Workboard card id mapping
 - [x] Attach normalized task context to the card title, notes, labels, and priority
-- [ ] Trigger `openclaw workboard dispatch` after eligible card creation or update
+- [ ] Automatically trigger `openclaw workboard dispatch` after eligible card creation or update
 
 ## Phase 3: OpenClaw Execution Lifecycle
 
