@@ -712,6 +712,41 @@ function buildHeartbeatComment(taskId: string, leaseExpiresAt: string): string {
   ].join("\n");
 }
 
+function readNestedString(record: Record<string, unknown>, path: string[]): string | undefined {
+  let current: unknown = record;
+  for (const key of path) {
+    if (current === null || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+
+  return typeof current === "string" && current.trim().length > 0 ? current.trim() : undefined;
+}
+
+function buildOpenClawStatusComment(
+  status: OpenClawWorkboardCardStatus,
+  raw: Record<string, unknown>,
+): string | undefined {
+  const summary =
+    readNestedString(raw, ["summary"]) ??
+    readNestedString(raw, ["execution", "summary"]) ??
+    readNestedString(raw, ["proof", "note"]) ??
+    readNestedString(raw, ["notes"]);
+
+  switch (status) {
+    case "running":
+      return "OpenClaw started work on this task.";
+    case "review":
+    case "done":
+      return summary ?? "OpenClaw finished this task and returned it for human review.";
+    case "blocked":
+      return summary ?? "OpenClaw blocked this task and needs human input before continuing.";
+    default:
+      return undefined;
+  }
+}
+
 function resolveArtifactLinks(
   projectKey: string | undefined,
   defaults: ArtifactLinks,
@@ -1021,6 +1056,113 @@ export function createBridgeServices(config: BridgeConfig) {
       workboardCardId: current.workboardCardId,
       status: card.status,
       raw: card.raw,
+    };
+  }
+
+  async function syncOpenClawCardToClickUp(taskId: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined || current.workboardCardId === undefined) {
+      throw new Error(`Task ${taskId} has not been handed off to OpenClaw`);
+    }
+
+    const previousStatus = current.openClawCardStatus;
+    const refreshed = await refreshOpenClawCard(taskId);
+    const next = state.getJob(taskId);
+    if (refreshed.status === undefined || next === undefined) {
+      return {
+        taskId,
+        workboardCardId: current.workboardCardId,
+        synced: false,
+        reason: "card status unavailable",
+      };
+    }
+
+    const mapping = getWorkboardToClickUpStatusMapping(refreshed.status);
+    const links = resolveArtifactLinks(next.task.projectKey ?? next.task.routingKey, artifactLinks, projectRoutingRules);
+    const updatedAt = nowIso();
+    const runId =
+      next.claim?.runId ??
+      current.claim?.runId ??
+      readNestedString(refreshed.raw, ["execution", "runId"]) ??
+      "";
+    const comment = previousStatus === refreshed.status ? undefined : buildOpenClawStatusComment(refreshed.status, refreshed.raw);
+
+    if (clickup !== undefined) {
+      if (comment !== undefined && mapping.syncComment) {
+        await clickup.postTaskComment(taskId, comment);
+      }
+
+      await clickup.updateTaskMetadata(taskId, {
+        status: mapping.clickupStatus,
+        customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
+          automation_state: mapping.automationState,
+          last_error: refreshed.status === "blocked" ? comment ?? "Blocked in OpenClaw" : "",
+          run_id: runId,
+          workboard_id: current.workboardCardId,
+        }),
+      });
+    }
+
+    state.mergeJob(taskId, {
+      bridgeState: mapping.isTerminal ? "synced_back" : next.bridgeState,
+      openClawCardStatus: refreshed.status,
+      updatedAt,
+      ...(mapping.isTerminal
+        ? {
+            terminalAt: updatedAt,
+            outcome:
+              refreshed.status === "blocked"
+                ? "blocked"
+                : refreshed.status === "review" || refreshed.status === "done"
+                  ? "succeeded"
+                  : next.outcome,
+          }
+        : {}),
+    });
+
+    logger.info("synced OpenClaw card status back to ClickUp", {
+      taskId,
+      workboardCardId: current.workboardCardId,
+      previousStatus: previousStatus ?? null,
+      status: refreshed.status,
+      clickupStatus: mapping.clickupStatus,
+    });
+
+    return {
+      taskId,
+      workboardCardId: current.workboardCardId,
+      status: refreshed.status,
+      clickupStatus: mapping.clickupStatus,
+      synced: true,
+    };
+  }
+
+  async function watchOpenClawCards() {
+    const jobs = state.listJobs().filter((job) => job.workboardCardId !== undefined);
+    const results: Array<Record<string, unknown>> = [];
+
+    for (const job of jobs) {
+      try {
+        results.push(await syncOpenClawCardToClickUp(job.task.id));
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        logger.warn("failed to sync OpenClaw card to ClickUp", {
+          taskId: job.task.id,
+          workboardCardId: job.workboardCardId,
+          error: reason,
+        });
+        results.push({
+          taskId: job.task.id,
+          workboardCardId: job.workboardCardId,
+          synced: false,
+          error: reason,
+        });
+      }
+    }
+
+    return {
+      watched: jobs.length,
+      results,
     };
   }
 
@@ -2092,6 +2234,8 @@ export function createBridgeServices(config: BridgeConfig) {
     handoffJobToOpenClaw,
     dispatchOpenClawWorkboard,
     refreshOpenClawCard,
+    syncOpenClawCardToClickUp,
+    watchOpenClawCards,
     claimNextJob,
     manualClaimJob,
     releaseJob,

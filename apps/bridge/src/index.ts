@@ -109,6 +109,14 @@ async function main(): Promise<void> {
     return reply.send(result);
   });
 
+  app.post("/openclaw/:taskId/sync", async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.syncOpenClawCardToClickUp(taskId);
+    return reply.send(result);
+  });
+
+  app.post("/openclaw/watch", async () => services.watchOpenClawCards());
+
   app.post("/workboard/claim-next", async (request, reply) => {
     const input = claimNextSchema.safeParse(request.body);
     if (!input.success) {
