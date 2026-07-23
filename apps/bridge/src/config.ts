@@ -25,6 +25,7 @@ const envSchema = z.object({
   OPENCLAW_BIN: z.string().min(1).optional(),
   OPENCLAW_WORKBOARD_BOARD_ID: z.string().min(1).optional(),
   OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS: z.string().optional(),
+  STATE_FILE_PATH: z.string().min(1).optional(),
   PORT: z.string().default("8787"),
   HOST: z.string().default("0.0.0.0"),
 });

@@ -102,5 +102,5 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Draft the Bridge to Workboard card payload contract
 - [x] Draft the Workboard to ClickUp status mapping table
 - [x] Implement the local `openclaw workboard` CLI adapter in Bridge
-- [ ] Implement card creation plus idempotent mapping storage
+- [x] Implement card creation plus idempotent mapping storage
 - [ ] Implement dispatch plus watcher loop

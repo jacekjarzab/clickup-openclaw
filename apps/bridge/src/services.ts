@@ -13,7 +13,7 @@ import {
   workerEventSchema,
   workboardStateSchema,
 } from "@clickup-openclaw/shared";
-import { InMemoryStateStore } from "@clickup-openclaw/state";
+import { FileBackedStateStore } from "@clickup-openclaw/state";
 import { InMemoryWorkboard } from "@clickup-openclaw/workboard";
 import { randomUUID } from "node:crypto";
 
@@ -799,7 +799,7 @@ function toNumber(value: string | undefined, fallback: number): number {
 
 export function createBridgeServices(config: BridgeConfig) {
   const logger = createLogger("bridge");
-  const state = new InMemoryStateStore();
+  const state = new FileBackedStateStore(config.STATE_FILE_PATH ?? ".data/bridge-state.json");
   const workboard = new InMemoryWorkboard();
   let paused = false;
   const defaultProjectKey = config.DEFAULT_PROJECT_KEY;
