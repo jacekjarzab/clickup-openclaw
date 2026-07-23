@@ -26,6 +26,7 @@
 - Persist the ClickUp task id to Workboard card id mapping
 - Attach normalized task context to the card title, notes, labels, and priority
 - Trigger `openclaw workboard dispatch` after eligible card creation or update
+- Implemented: automatic handoff and dispatch now run during ingest/sync for eligible tasks
 
 ## Phase 3: OpenClaw Execution Lifecycle
 

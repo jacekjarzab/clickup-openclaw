@@ -6,11 +6,12 @@ import {
   getWorkboardToClickUpStatusMapping,
   clickupWebhookEventSchema,
   type BridgeToWorkboardCard,
+  type BridgeJobState,
   type ClickUpTask,
   type OpenClawWorkboardCardStatus,
   type PriorityBucket,
 } from "@clickup-openclaw/shared";
-import { FileBackedStateStore } from "@clickup-openclaw/state";
+import { FileBackedStateStore, InMemoryStateStore } from "@clickup-openclaw/state";
 
 import type { BridgeConfig } from "./config.js";
 import { OpenClawWorkboardAdapter } from "./openclaw-workboard.js";
@@ -752,9 +753,32 @@ function toNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function createBridgeServices(config: BridgeConfig) {
+function preserveBridgeState(value: BridgeJobState | undefined): BridgeJobState | undefined {
+  if (
+    value === "eligible" ||
+    value === "card_created" ||
+    value === "dispatched" ||
+    value === "running" ||
+    value === "blocked" ||
+    value === "completed" ||
+    value === "synced_back" ||
+    value === "dead_lettered"
+  ) {
+    return value;
+  }
+
+  return undefined;
+}
+
+type BridgeServiceDependencies = {
+  stateStore?: FileBackedStateStore | InMemoryStateStore;
+  openClawWorkboard?: OpenClawWorkboardAdapter;
+};
+
+export function createBridgeServices(config: BridgeConfig, dependencies: BridgeServiceDependencies = {}) {
   const logger = createLogger("bridge");
-  const state = new FileBackedStateStore(config.STATE_FILE_PATH ?? ".data/bridge-state.json");
+  const state =
+    dependencies.stateStore ?? new FileBackedStateStore(config.STATE_FILE_PATH ?? ".data/bridge-state.json");
   let paused = false;
   const defaultProjectKey = config.DEFAULT_PROJECT_KEY;
   const repoUrl = resolveRepoUrl(config);
@@ -793,14 +817,16 @@ export function createBridgeServices(config: BridgeConfig) {
           token: config.CLICKUP_API_TOKEN,
           ...(config.CLICKUP_BASE_URL === undefined ? {} : { baseUrl: config.CLICKUP_BASE_URL }),
         });
-  const openClawWorkboard = new OpenClawWorkboardAdapter({
-    ...(config.OPENCLAW_BIN === undefined ? {} : { binary: config.OPENCLAW_BIN }),
-    ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
-      ? {}
-      : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
-    cwd: process.cwd(),
-    timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS, 30_000),
-  });
+  const openClawWorkboard =
+    dependencies.openClawWorkboard ??
+    new OpenClawWorkboardAdapter({
+      ...(config.OPENCLAW_BIN === undefined ? {} : { binary: config.OPENCLAW_BIN }),
+      ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+        ? {}
+        : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+      cwd: process.cwd(),
+      timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS, 30_000),
+    });
 
   function renderTaskSnapshotForWorkboard(job: ReturnType<typeof state.getJob> extends infer T ? T : never): string {
     if (job === undefined) {
@@ -957,7 +983,9 @@ export function createBridgeServices(config: BridgeConfig) {
       ...(input?.maxStarts === undefined ? {} : { maxStarts: input.maxStarts }),
     });
 
-    for (const job of state.listJobs().filter((entry) => entry.workboardCardId !== undefined)) {
+    for (const job of state
+      .listJobs()
+      .filter((entry) => (entry.bridgeState === "eligible" || entry.bridgeState === "card_created") && entry.workboardCardId !== undefined)) {
       state.mergeJob(job.task.id, {
         bridgeState: "dispatched",
         dispatchedAt,
@@ -973,6 +1001,56 @@ export function createBridgeServices(config: BridgeConfig) {
     return {
       dispatchedAt,
       result,
+    };
+  }
+
+  async function autoHandoffAndDispatchEligibleJob(taskId: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (paused) {
+      return {
+        taskId,
+        paused: true,
+        handedOff: false,
+        dispatched: false,
+      };
+    }
+
+    if (current.bridgeState !== "eligible" && current.bridgeState !== "card_created") {
+      return {
+        taskId,
+        paused: false,
+        handedOff: false,
+        dispatched: false,
+      };
+    }
+
+    let handedOff = false;
+    if (current.workboardCardId === undefined) {
+      await handoffJobToOpenClaw(taskId);
+      handedOff = true;
+    }
+
+    const afterHandoff = state.getJob(taskId);
+    if (afterHandoff?.bridgeState !== "eligible" && afterHandoff?.bridgeState !== "card_created") {
+      return {
+        taskId,
+        paused: false,
+        handedOff,
+        dispatched: false,
+      };
+    }
+
+    await dispatchOpenClawWorkboard();
+
+    return {
+      taskId,
+      paused: false,
+      handedOff,
+      dispatched: true,
     };
   }
 
@@ -1238,6 +1316,7 @@ export function createBridgeServices(config: BridgeConfig) {
       approvalRequired,
     });
     const effectiveApprovalRequired = automationAllowed === true ? false : approvalRequired === true;
+    const currentJob = state.getJob(input.task.id);
 
     state.upsertJob({
       task: {
@@ -1273,20 +1352,38 @@ export function createBridgeServices(config: BridgeConfig) {
           : isEligibleForOpenClaw(currentStatus)
             ? "eligible"
             : "normalized",
-      bridgeState: autoPicked || isEligibleForOpenClaw(currentStatus) ? "eligible" : "received",
-      claim: undefined,
+      bridgeState:
+        preserveBridgeState(currentJob?.bridgeState) ??
+        (autoPicked || isEligibleForOpenClaw(currentStatus) ? "eligible" : "received"),
+      claim: currentJob?.claim,
+      handoffPayload: currentJob?.handoffPayload,
+      workboardCardId: currentJob?.workboardCardId,
+      openClawCardStatus: currentJob?.openClawCardStatus,
+      handedOffAt: currentJob?.handedOffAt,
+      dispatchedAt: currentJob?.dispatchedAt,
       idempotencyKey,
-      retryCount: 0,
-      lastError: undefined,
+      retryCount: currentJob?.retryCount ?? 0,
+      lastError: currentJob?.lastError,
       lastEventAt: receivedAt,
       updatedAt: receivedAt,
-      events: [],
+      events: currentJob?.events ?? [],
+      blockedAt: currentJob?.blockedAt,
+      claimedAt: currentJob?.claimedAt,
+      terminalAt: currentJob?.terminalAt,
+      outcome: currentJob?.outcome,
+      deadLetteredAt: currentJob?.deadLetteredAt,
+      deadLetterReason: currentJob?.deadLetterReason,
       workType,
       workflowTemplate: workflowTemplateText,
       decompositionPlan: decompositionText,
       triageReason,
       template: templateText,
     });
+
+    const postIngestJob = state.getJob(input.task.id);
+    if (postIngestJob?.bridgeState === "eligible" || postIngestJob?.bridgeState === "card_created") {
+      await autoHandoffAndDispatchEligibleJob(input.task.id);
+    }
 
     return { accepted: true, duplicate: false };
   }
@@ -1309,6 +1406,7 @@ export function createBridgeServices(config: BridgeConfig) {
         name: event.taskId,
         status: event.status ?? "unknown",
         listId: event.listId,
+        updatedAt: event.updatedAt,
         tags: [],
       };
 
