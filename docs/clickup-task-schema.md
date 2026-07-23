@@ -1,7 +1,7 @@
 # ClickUp Task Schema Proposal
 
 ## Purpose
-Make ClickUp the source of truth for all client work while giving OpenClaw a clean, machine-readable path for claiming, processing, and reporting tasks.
+Make ClickUp the source of truth for all client work while giving OpenClaw a clean, machine-readable path for dispatching, processing, and reporting tasks.
 
 ## Recommended Workspace Structure
 
@@ -94,18 +94,18 @@ For each OpenClaw-ready task, encourage the following structure:
 - Links
 - Notes
 
-## OpenClaw Claim Rules
+## OpenClaw Dispatch Rules
 
-- Only tasks with `automation_allowed = true` or `status = ready for openclaw` may be claimed automatically.
+- Only tasks with `automation_allowed = true` or `status = ready for openclaw` may be dispatched automatically.
 - One active Workboard card per task in Bridge-managed automation.
 - Card creation and dispatch must be idempotent.
-- Every claim must write a `run_id` and `workboard_id`.
+- Every successful handoff should write a `workboard_id`, and runtime sync should write `run_id` once OpenClaw exposes it.
 - Every finish or failure must write a summary comment back to ClickUp.
 
 ## Comments Strategy
 
-- On claim:
-  - `Claimed by OpenClaw, starting work.`
+- On running:
+  - `OpenClaw started work on this task.`
 - On major milestone:
   - short progress note with what changed
 - On finish:

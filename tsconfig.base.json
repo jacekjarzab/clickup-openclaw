@@ -14,8 +14,7 @@
       "@clickup-openclaw/clickup-client": ["packages/clickup-client/src/index.ts"],
       "@clickup-openclaw/observability": ["packages/observability/src/index.ts"],
       "@clickup-openclaw/shared": ["packages/shared/src/index.ts"],
-      "@clickup-openclaw/state": ["packages/state/src/index.ts"],
-      "@clickup-openclaw/workboard": ["packages/workboard/src/index.ts"]
+      "@clickup-openclaw/state": ["packages/state/src/index.ts"]
     }
   }
 }

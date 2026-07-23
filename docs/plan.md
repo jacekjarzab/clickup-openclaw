@@ -25,11 +25,8 @@ Use ClickUp as the single source of truth while Bridge routes only automation-el
   - Creates Workboard cards through the local `openclaw workboard` CLI.
   - Polls or reconciles Workboard state and pushes results back to ClickUp.
 - OpenClaw Workboard
-  - Owns queue state, claims, heartbeats, retries, worker logs, proof, and completion metadata.
+  - Owns queue state, runtime status, proof, and completion metadata.
   - Provides the live operator UI in OpenClaw Control UI.
-- Reporter
-  - Posts concise summaries and evidence back to ClickUp.
-  - Moves completed automation work to `human-review`.
 - Local bridge host
   - Runs on the same machine as the local OpenClaw Gateway.
   - Talks to OpenClaw over loopback or same-host CLI.
@@ -73,17 +70,15 @@ Bridge should write:
 
 Bridge should read back:
 - card status
-- claim and heartbeat state
 - execution summary
 - proof and artifacts
-- worker logs
 - blocker reason
 
 ## Reporting Back to ClickUp
 On handoff:
 - optional comment: `Queued for OpenClaw automation`
 
-On start:
+On running:
 - comment: `OpenClaw started work on this task`
 - status: `in progress`
 
@@ -126,7 +121,7 @@ On failure or blocked work:
 - Add lower-latency event-driven Workboard sync
 - Add richer per-project routing rules
 - Add human approval gates for risky actions
-- Add metrics for throughput, failures, and stale claims
+- Add metrics for throughput, failures, and stale or stuck cards
 
 ## Early Decisions
 - The default OpenClaw agent handles Bridge work for now.

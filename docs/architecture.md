@@ -1,7 +1,7 @@
 # ClickUp + OpenClaw Architecture
 
 ## Overview
-ClickUp remains the system of record for clients, projects, and tasks. Bridge runs on the same machine as the local OpenClaw Gateway, turns automation-eligible ClickUp tasks into Workboard cards, dispatches them into the existing OpenClaw worker runtime, and writes results back to ClickUp for human review.
+ClickUp remains the system of record for clients, projects, and tasks. Bridge runs on the same machine as the local OpenClaw Gateway, turns automation-eligible ClickUp tasks into Workboard cards, dispatches them into the existing OpenClaw runtime, and writes results back to ClickUp for human review.
 
 ## Architecture Diagram
 
@@ -20,7 +20,6 @@ flowchart LR
     GW[OpenClaw Gateway]
     WB[OpenClaw Workboard]
     AGT[Default OpenClaw Agent]
-    REP[Result Reporter]
     OBS[Logs / Metrics / Alerts]
   end
 
@@ -31,11 +30,10 @@ flowchart LR
   SYNC --> ADP
   ADP -->|workboard create/show/dispatch| GW
   GW --> WB
-  WB -->|claim/heartbeat/complete| AGT
+  WB -->|dispatch/run lifecycle| AGT
   WB -->|status/proof/artifacts| ADP
-  ADP --> REP
-  REP --> CU
-  REP --> MAP
+  ADP --> CU
+  ADP --> MAP
   SYNC --> OBS
   ADP --> OBS
   GW --> OBS
@@ -62,12 +60,10 @@ flowchart LR
 - OpenClaw Gateway
   - Existing local runtime already running on the host.
 - OpenClaw Workboard
-  - Queue, claim, heartbeat, proof, and execution visibility layer.
+  - Queue, status, proof, and execution visibility layer.
   - Real-time operator UI for workload tracking.
 - Default OpenClaw Agent
   - Processes Bridge-dispatched Workboard cards.
-- Result Reporter
-  - Posts final summaries, links, and blocker notes to the source ClickUp task.
 - Logs / Metrics / Alerts
   - Captures sync failures, dispatch failures, blocked work, and restart recovery.
 
@@ -80,7 +76,7 @@ flowchart LR
 5. The adapter creates or updates a matching Workboard card.
 6. The adapter triggers Workboard dispatch.
 7. The default OpenClaw agent claims the card and starts execution.
-8. OpenClaw Workboard tracks running state, heartbeats, worker logs, proof, and completion metadata.
+8. OpenClaw Workboard tracks running state, proof, and completion metadata.
 9. Bridge reads the terminal Workboard result and writes the summary back to ClickUp.
 10. The ClickUp task is moved to `human-review` on successful completion, or to the agreed blocked path on failure.
 
@@ -105,5 +101,4 @@ flowchart LR
 - One existing local OpenClaw Gateway.
 - One Workboard queue.
 - One default OpenClaw agent path for execution.
-- One reporter that always writes back to ClickUp.
 - Polling as the fallback path even if webhooks are enabled.

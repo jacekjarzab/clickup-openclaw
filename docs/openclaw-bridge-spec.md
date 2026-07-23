@@ -40,12 +40,9 @@ Bridge owns orchestration state and OpenClaw owns execution state.
   - useful artifact links already known at handoff time
 - OpenClaw Workboard returns runtime truth:
   - card status
-  - claim state
-  - heartbeat state
   - execution summary
   - proof
   - artifacts
-  - worker logs
   - blocker reason
 
 ## Core Services
@@ -65,10 +62,6 @@ Bridge owns orchestration state and OpenClaw owns execution state.
   - reads card state
   - detects terminal outcomes
   - captures summary, proof, artifacts, and blocker context
-- Reporter
-  - ClickUp status updates
-  - comments
-  - link aggregation
 - State Store
   - task-to-card mappings
   - idempotency keys
@@ -86,7 +79,7 @@ Bridge owns orchestration state and OpenClaw owns execution state.
 7. OpenClaw Adapter triggers Workboard dispatch.
 8. The default OpenClaw agent claims and performs the work.
 9. Workboard Watcher reads card state until a terminal result is reached.
-10. Reporter posts the final outcome to ClickUp.
+10. Bridge posts the final outcome to ClickUp.
 11. State Store keeps the audit trail.
 
 ## Bridge States
@@ -145,7 +138,7 @@ On queue:
 
 - optional comment: `Queued for OpenClaw automation.`
 
-On start:
+On running:
 
 - status to `in progress`
 - comment: `OpenClaw started work on this task.`

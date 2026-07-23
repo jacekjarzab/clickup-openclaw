@@ -30,11 +30,11 @@
 ## Phase 3: OpenClaw Execution Lifecycle
 
 - Let the default OpenClaw agent process Workboard cards
-- Treat Workboard claim, heartbeat, blocking, and completion as execution truth
+- Treat Workboard status, blocking, and completion as execution truth
 - Read Workboard card state and linked run data from Bridge
 - Detect terminal states: `review`, `done`, `blocked`
 - Capture worker summary, proof, artifacts, comments, and blocker context
-- Handle Gateway restarts or stale claims by re-reading Workboard state before retrying Bridge actions
+- Handle Gateway restarts or stale cards by re-reading Workboard state before retrying Bridge actions
 
 ## Phase 4: ClickUp Write-Back
 
@@ -57,7 +57,7 @@
 
 - Add retry policy for transient ClickUp, Gateway, or CLI failures
 - Add dead-letter handling for repeated handoff failures
-- Add detection for stale Workboard claims and interrupted runs
+- Add detection for stale Workboard cards and interrupted runs
 - Add visibility into dispatch failures, queue stalls, and sync lag
 - Add restart-safe reconciliation so Bridge can resume after crashes without duplicate card creation
 
