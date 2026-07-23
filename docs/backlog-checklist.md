@@ -30,7 +30,7 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 2: Bridge to Workboard Handoff
 
-- [ ] Create an OpenClaw adapter in Bridge using the local `openclaw workboard` CLI
+- [x] Create an OpenClaw adapter in Bridge using the local `openclaw workboard` CLI
 - [ ] Create Workboard cards only for automation-eligible ClickUp tasks
 - [ ] Use a stable idempotency key derived from the ClickUp task id
 - [ ] Persist the ClickUp task id to Workboard card id mapping
@@ -101,6 +101,6 @@ This is the living build checklist. Update it as we complete items and discover 
 
 - [x] Draft the Bridge to Workboard card payload contract
 - [x] Draft the Workboard to ClickUp status mapping table
-- [ ] Implement the local `openclaw workboard` CLI adapter in Bridge
+- [x] Implement the local `openclaw workboard` CLI adapter in Bridge
 - [ ] Implement card creation plus idempotent mapping storage
 - [ ] Implement dispatch plus watcher loop

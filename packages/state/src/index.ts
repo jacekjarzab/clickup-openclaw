@@ -1,7 +1,10 @@
 import type {
+  BridgeJobState,
+  BridgeToWorkboardCard,
   ClaimRecord,
   ClickUpTask,
   IdempotencyRecord,
+  OpenClawWorkboardCardStatus,
   WorkerEvent,
   WorkboardState,
 } from "@clickup-openclaw/shared";
@@ -9,7 +12,13 @@ import type {
 export type JobRecord = {
   task: ClickUpTask;
   state: WorkboardState;
+  bridgeState?: BridgeJobState | undefined;
   claim: ClaimRecord | undefined;
+  handoffPayload?: BridgeToWorkboardCard | undefined;
+  workboardCardId?: string | undefined;
+  openClawCardStatus?: OpenClawWorkboardCardStatus | undefined;
+  handedOffAt?: string | undefined;
+  dispatchedAt?: string | undefined;
   idempotencyKey: string | undefined;
   workType: string | undefined;
   workflowTemplate: string | undefined;
@@ -32,7 +41,13 @@ export type JobRecord = {
 export type JobPatch = {
   task?: ClickUpTask | undefined;
   state?: WorkboardState | undefined;
+  bridgeState?: BridgeJobState | undefined;
   claim?: ClaimRecord | undefined;
+  handoffPayload?: BridgeToWorkboardCard | undefined;
+  workboardCardId?: string | undefined;
+  openClawCardStatus?: OpenClawWorkboardCardStatus | undefined;
+  handedOffAt?: string | undefined;
+  dispatchedAt?: string | undefined;
   idempotencyKey?: string | undefined;
   workType?: string | undefined;
   workflowTemplate?: string | undefined;
@@ -77,8 +92,26 @@ export class InMemoryStateStore {
     if ("state" in patch && patch.state !== undefined) {
       next.state = patch.state;
     }
+    if ("bridgeState" in patch) {
+      next.bridgeState = patch.bridgeState;
+    }
     if ("claim" in patch) {
       next.claim = patch.claim;
+    }
+    if ("handoffPayload" in patch) {
+      next.handoffPayload = patch.handoffPayload;
+    }
+    if ("workboardCardId" in patch) {
+      next.workboardCardId = patch.workboardCardId;
+    }
+    if ("openClawCardStatus" in patch) {
+      next.openClawCardStatus = patch.openClawCardStatus;
+    }
+    if ("handedOffAt" in patch) {
+      next.handedOffAt = patch.handedOffAt;
+    }
+    if ("dispatchedAt" in patch) {
+      next.dispatchedAt = patch.dispatchedAt;
     }
     if ("idempotencyKey" in patch) {
       next.idempotencyKey = patch.idempotencyKey;

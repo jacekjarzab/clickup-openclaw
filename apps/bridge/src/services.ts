@@ -1,9 +1,14 @@
 import { createClickUpClient } from "@clickup-openclaw/clickup-client";
 import { createLogger } from "@clickup-openclaw/observability";
 import {
+  bridgeToWorkboardCardSchema,
+  clickupAutomationStatusSchema,
+  getWorkboardToClickUpStatusMapping,
   claimRecordSchema,
   clickupWebhookEventSchema,
+  type BridgeToWorkboardCard,
   type ClickUpTask,
+  type OpenClawWorkboardCardStatus,
   type PriorityBucket,
   workerEventSchema,
   workboardStateSchema,
@@ -13,6 +18,7 @@ import { InMemoryWorkboard } from "@clickup-openclaw/workboard";
 import { randomUUID } from "node:crypto";
 
 import type { BridgeConfig } from "./config.js";
+import { OpenClawWorkboardAdapter } from "./openclaw-workboard.js";
 import { resolveRepoUrl } from "./repo-url.js";
 
 const DEFAULT_LEASE_SECONDS = 15 * 60;
@@ -798,6 +804,225 @@ export function createBridgeServices(config: BridgeConfig) {
           token: config.CLICKUP_API_TOKEN,
           ...(config.CLICKUP_BASE_URL === undefined ? {} : { baseUrl: config.CLICKUP_BASE_URL }),
         });
+  const openClawWorkboard = new OpenClawWorkboardAdapter({
+    ...(config.OPENCLAW_BIN === undefined ? {} : { binary: config.OPENCLAW_BIN }),
+    ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+      ? {}
+      : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+    cwd: process.cwd(),
+    timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS, 30_000),
+  });
+
+  function mapOutcomeToWorkboardStatus(outcome: "succeeded" | "failed" | "blocked"): OpenClawWorkboardCardStatus {
+    if (outcome === "succeeded") {
+      return "done";
+    }
+
+    return outcome === "blocked" ? "blocked" : "blocked";
+  }
+
+  function renderTaskSnapshotForWorkboard(job: ReturnType<typeof state.getJob> extends infer T ? T : never): string {
+    if (job === undefined) {
+      return "";
+    }
+
+    const lines = [
+      `ClickUp task: ${job.task.name}`,
+      `Task ID: ${job.task.id}`,
+      `Status: ${job.task.status}`,
+    ];
+
+    if (job.task.projectKey !== undefined) {
+      lines.push(`Project key: ${job.task.projectKey}`);
+    }
+    if (job.task.workType !== undefined) {
+      lines.push(`Work type: ${job.task.workType}`);
+    }
+    if (job.task.priorityBucket !== undefined) {
+      lines.push(`Priority bucket: ${job.task.priorityBucket}`);
+    }
+    if (job.task.description !== undefined && job.task.description.trim().length > 0) {
+      lines.push("", "Description:", job.task.description.trim());
+    }
+    if (job.triageReason !== undefined) {
+      lines.push("", `Triage note: ${job.triageReason}`);
+    }
+    if (job.workflowTemplate !== undefined) {
+      lines.push("", job.workflowTemplate);
+    }
+    if (job.decompositionPlan !== undefined) {
+      lines.push("", job.decompositionPlan);
+    }
+    if (job.template !== undefined) {
+      lines.push("", job.template);
+    }
+
+    const links = [
+      job.task.repoUrl === undefined ? undefined : `- Repo: ${job.task.repoUrl}`,
+      job.task.prUrl === undefined ? undefined : `- PR: ${job.task.prUrl}`,
+      job.task.artifactUrl === undefined ? undefined : `- Artifact: ${job.task.artifactUrl}`,
+      job.task.docsUrl === undefined ? undefined : `- Docs: ${job.task.docsUrl}`,
+      job.task.designUrl === undefined ? undefined : `- Design: ${job.task.designUrl}`,
+    ].filter((line): line is string => line !== undefined);
+
+    if (links.length > 0) {
+      lines.push("", "Links:", ...links);
+    }
+
+    return lines.join("\n");
+  }
+
+  function buildWorkboardLabels(task: ClickUpTask): string[] {
+    return [
+      "clickup",
+      "automation",
+      task.projectKey === undefined ? undefined : `project:${normalizeKey(task.projectKey)}`,
+      task.workType === undefined ? undefined : `work-type:${normalizeKey(task.workType)}`,
+      task.routingKey === undefined ? undefined : `route:${normalizeKey(task.routingKey)}`,
+      ...normalizeTags(task.tags).map((tag) => `tag:${tag}`),
+    ].filter((label): label is string => label !== undefined);
+  }
+
+  function buildBridgeToWorkboardCard(taskId: string): BridgeToWorkboardCard {
+    const job = state.getJob(taskId);
+    if (job === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    const payload = bridgeToWorkboardCardSchema.parse({
+      card: {
+        title: job.task.name,
+        notes: renderTaskSnapshotForWorkboard(job),
+        status: "ready",
+        priority: job.task.priorityBucket ?? "normal",
+        labels: buildWorkboardLabels(job.task),
+        boardId: config.OPENCLAW_WORKBOARD_BOARD_ID,
+        idempotencyKey: `clickup-task:${job.task.id}`,
+      },
+      metadata: {
+        sourceSystem: "clickup",
+        clickupTaskId: job.task.id,
+        ...(clickupAutomationStatusSchema.safeParse(normalizeStatus(job.task.status)).success
+          ? {
+              clickupStatus: clickupAutomationStatusSchema.parse(normalizeStatus(job.task.status)),
+            }
+          : {}),
+        projectKey: job.task.projectKey,
+        workType: job.task.workType,
+        routingKey: job.task.routingKey,
+        automationAllowed: job.task.automationAllowed,
+        approvalRequired: job.task.approvalRequired,
+        priorityBucket: job.task.priorityBucket,
+        tags: job.task.tags,
+        repoUrl: job.task.repoUrl,
+        prUrl: job.task.prUrl,
+        artifactUrl: job.task.artifactUrl,
+        docsUrl: job.task.docsUrl,
+        designUrl: job.task.designUrl,
+      },
+    });
+
+    return payload;
+  }
+
+  async function handoffJobToOpenClaw(taskId: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (current.workboardCardId !== undefined) {
+      return {
+        taskId,
+        workboardCardId: current.workboardCardId,
+        status: current.openClawCardStatus,
+        duplicate: true,
+      };
+    }
+
+    const payload = buildBridgeToWorkboardCard(taskId);
+    const created = await openClawWorkboard.createCard(payload);
+    const handedOffAt = nowIso();
+
+    state.mergeJob(taskId, {
+      bridgeState: "card_created",
+      handoffPayload: payload,
+      workboardCardId: created.id,
+      openClawCardStatus: created.status ?? payload.card.status,
+      handedOffAt,
+      updatedAt: handedOffAt,
+    });
+
+    logger.info("job handed off to OpenClaw workboard", {
+      taskId,
+      workboardCardId: created.id,
+      status: created.status ?? payload.card.status,
+    });
+
+    return {
+      taskId,
+      workboardCardId: created.id,
+      status: created.status ?? payload.card.status,
+      duplicate: false,
+    };
+  }
+
+  async function dispatchOpenClawWorkboard(input?: { maxStarts?: number | undefined }) {
+    const dispatchedAt = nowIso();
+    const result = await openClawWorkboard.dispatch({
+      ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+        ? {}
+        : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+      ...(input?.maxStarts === undefined ? {} : { maxStarts: input.maxStarts }),
+    });
+
+    for (const job of state.listJobs().filter((entry) => entry.workboardCardId !== undefined)) {
+      state.mergeJob(job.task.id, {
+        bridgeState: "dispatched",
+        dispatchedAt,
+        updatedAt: dispatchedAt,
+      });
+    }
+
+    logger.info("openclaw workboard dispatch requested", {
+      boardId: config.OPENCLAW_WORKBOARD_BOARD_ID,
+      result,
+    });
+
+    return {
+      dispatchedAt,
+      result,
+    };
+  }
+
+  async function refreshOpenClawCard(taskId: string) {
+    const current = state.getJob(taskId);
+    if (current?.workboardCardId === undefined) {
+      throw new Error(`Task ${taskId} has not been handed off to OpenClaw`);
+    }
+
+    const card = await openClawWorkboard.showCard(current.workboardCardId);
+    const updatedAt = nowIso();
+    const mapping = card.status === undefined ? undefined : getWorkboardToClickUpStatusMapping(card.status);
+
+    state.mergeJob(taskId, {
+      bridgeState:
+        mapping?.isTerminal === true
+          ? "completed"
+          : card.status === "running"
+            ? "running"
+            : current.bridgeState,
+      openClawCardStatus: card.status,
+      updatedAt,
+    });
+
+    return {
+      taskId,
+      workboardCardId: current.workboardCardId,
+      status: card.status,
+      raw: card.raw,
+    };
+  }
 
   async function writeClaimSideEffects(taskId: string, runId: string, claimWorkboardId: string, now: string) {
     if (clickup === undefined) {
@@ -977,6 +1202,7 @@ export function createBridgeServices(config: BridgeConfig) {
           : isEligibleForOpenClaw(currentStatus)
             ? "eligible"
             : "normalized",
+      bridgeState: autoPicked || isEligibleForOpenClaw(currentStatus) ? "eligible" : "received",
       claim: undefined,
       idempotencyKey,
       retryCount: 0,
@@ -1704,20 +1930,11 @@ export function createBridgeServices(config: BridgeConfig) {
     try {
       if (clickup !== undefined) {
         await clickup.postTaskComment(taskId, buildArtifactComment(input.summary, links, current.task));
+        const mappedStatus = getWorkboardToClickUpStatusMapping(mapOutcomeToWorkboardStatus(input.outcome));
         await clickup.updateTaskMetadata(taskId, {
-          status:
-            input.outcome === "succeeded"
-              ? "done"
-              : input.outcome === "blocked"
-                ? "blocked"
-                : "failed",
+          status: mappedStatus.clickupStatus,
           customFields: buildTaskWriteBackFields(current.task, completedAt, links, {
-            automation_state:
-              input.outcome === "succeeded"
-                ? "done"
-                : input.outcome === "blocked"
-                  ? "blocked"
-                  : "manual",
+            automation_state: mappedStatus.automationState,
             last_error: input.outcome === "succeeded" ? "" : input.summary,
             run_id: claim?.runId ?? current.claim?.runId ?? "",
             workboard_id: claim?.workboardId ?? current.claim?.workboardId ?? "",
@@ -1830,7 +2047,7 @@ export function createBridgeServices(config: BridgeConfig) {
       if (clickup !== undefined) {
         await clickup.postTaskComment(taskId, `Forced into review by OpenClaw: ${input.reason}`);
         await clickup.updateTaskMetadata(taskId, {
-          status: "review",
+          status: "human-review",
           customFields: buildTaskWriteBackFields(current.task, now, links, {
             automation_state: "candidate",
             last_error: input.reason,
@@ -1868,8 +2085,13 @@ export function createBridgeServices(config: BridgeConfig) {
     state,
     workboard,
     clickup,
+    openClawWorkboard,
     ingestWebhook,
     syncList,
+    buildBridgeToWorkboardCard,
+    handoffJobToOpenClaw,
+    dispatchOpenClawWorkboard,
+    refreshOpenClawCard,
     claimNextJob,
     manualClaimJob,
     releaseJob,

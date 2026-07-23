@@ -56,6 +56,10 @@ const syncListSchema = z.object({
   listId: z.string().min(1),
 });
 
+const openClawDispatchSchema = z.object({
+  maxStarts: z.number().int().positive().optional(),
+});
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const services = createBridgeServices(config);
@@ -81,6 +85,28 @@ async function main(): Promise<void> {
 
     const result = await services.syncList(input.data.listId);
     return reply.code(202).send(result);
+  });
+
+  app.post("/openclaw/:taskId/handoff", async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.handoffJobToOpenClaw(taskId);
+    return reply.code(result.duplicate ? 200 : 201).send(result);
+  });
+
+  app.post("/openclaw/dispatch", async (request, reply) => {
+    const input = openClawDispatchSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const result = await services.dispatchOpenClawWorkboard(input.data);
+    return reply.code(202).send(result);
+  });
+
+  app.get("/openclaw/:taskId/card", async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.refreshOpenClawCard(taskId);
+    return reply.send(result);
   });
 
   app.post("/workboard/claim-next", async (request, reply) => {

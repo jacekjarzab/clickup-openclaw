@@ -22,6 +22,9 @@ const envSchema = z.object({
   BLOCKED_ESCALATION_MS: z.string().optional(),
   DEFAULT_PROJECT_KEY: z.string().min(1).optional(),
   PROJECT_ROUTING_JSON: z.string().optional(),
+  OPENCLAW_BIN: z.string().min(1).optional(),
+  OPENCLAW_WORKBOARD_BOARD_ID: z.string().min(1).optional(),
+  OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS: z.string().optional(),
   PORT: z.string().default("8787"),
   HOST: z.string().default("0.0.0.0"),
 });
