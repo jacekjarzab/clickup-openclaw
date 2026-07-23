@@ -1,44 +1,47 @@
 # ClickUp + OpenClaw Integration Plan
 
 ## Goal
-Use ClickUp as the single source of truth for clients, projects, and tasks, while OpenClaw picks up tasks, processes them in a controlled workboard, and reports results back into ClickUp.
+Use ClickUp as the single source of truth while Bridge routes only automation-eligible tasks into the existing local OpenClaw Gateway. OpenClaw Workboard owns execution and runtime visibility, and Bridge writes terminal outcomes back to ClickUp for human review.
 
 ## Target Workflow
-- ClickUp manages clients, projects, tasks, and statuses.
-- OpenClaw connects to ClickUp and claims eligible tasks.
-- Tasks are processed in a controlled manner with leases, heartbeats, and retries.
-- OpenClaw writes results back to the source ClickUp task:
+- ClickUp manages tasks, statuses, and human-visible history.
+- Bridge watches ClickUp for automation-eligible tasks only.
+- Bridge creates or updates a matching OpenClaw Workboard card.
+- Bridge triggers OpenClaw Workboard dispatch through the local host runtime.
+- The default OpenClaw agent claims and processes the card.
+- Bridge watches Workboard state and writes the outcome back to ClickUp:
   - status updates
   - summary comments
-  - links to PRs, repos, commits, docs, or deployments
-  - error reports for crashes, timeouts, and blocked work
+  - proof and useful links
+  - blocker or failure context
 
 ## Proposed Architecture
 - ClickUp sync layer
   - Watches ClickUp for new or changed tasks.
-  - Normalizes tasks into OpenClaw jobs.
-  - Writes back status, comments, and metadata.
-- OpenClaw dispatcher
-  - Claims tasks and starts bounded execution runs.
-  - Tracks queued, claimed, in progress, blocked, done, and failed states.
-- Workboard / execution engine
-  - Holds active jobs with ownership, retry count, lease timeout, and heartbeat.
-  - Prevents double-processing.
+  - Filters out tasks that should not be automated.
+  - Normalizes eligible tasks into Bridge job records.
+- Bridge orchestrator
+  - Owns idempotency, task-to-card mapping, and dispatch decisions.
+  - Creates Workboard cards through the local `openclaw workboard` CLI.
+  - Polls or reconciles Workboard state and pushes results back to ClickUp.
+- OpenClaw Workboard
+  - Owns queue state, claims, heartbeats, retries, worker logs, proof, and completion metadata.
+  - Provides the live operator UI in OpenClaw Control UI.
 - Reporter
   - Posts concise summaries and evidence back to ClickUp.
-  - Logs failures with a standard error format.
-- Local bridge
-  - Runs inside the private network or Tailscale.
-  - Handles auth, event sync, retries, and idempotency.
+  - Moves completed automation work to `human-review`.
+- Local bridge host
+  - Runs on the same machine as the local OpenClaw Gateway.
+  - Talks to OpenClaw over loopback or same-host CLI.
 
 ## Task Lifecycle
-- `new` or `ready`
-- `claimed`
-- `in progress`
-- `blocked`
-- `review` if human approval is needed
-- `done`
-- `failed`
+- ClickUp `ready for automation`
+- Bridge `normalized`
+- Workboard `todo` or `ready`
+- Workboard `running`
+- Workboard `blocked`
+- Workboard `review` or `done`
+- ClickUp `human-review`
 
 ## ClickUp Data Model
 Recommended custom fields and metadata:
@@ -58,89 +61,83 @@ Use a boring, explicit hierarchy:
 - Task: one work item
 - Subtask: only for decomposed steps
 
-That gives OpenClaw a stable place to sync from without inventing extra structure.
+That gives Bridge a stable place to sync from without inventing extra structure.
 
-## OpenClaw Data Model
-Recommended internal state:
-- claim owner
-- task payload snapshot
-- execution history
-- retry count
-- heartbeat timestamps
-- artifact links
-- error traces
-- human handoff reason when blocked
+## Workboard Contract
+Bridge should write:
+- stable card title
+- normalized task snapshot in notes
+- labels for project, automation type, and source
+- priority mapped from ClickUp
+- idempotency key derived from ClickUp task id
+
+Bridge should read back:
+- card status
+- claim and heartbeat state
+- execution summary
+- proof and artifacts
+- worker logs
+- blocker reason
 
 ## Reporting Back to ClickUp
+On handoff:
+- optional comment: `Queued for OpenClaw automation`
+
 On start:
-- comment: `Claimed by OpenClaw, starting work`
+- comment: `OpenClaw started work on this task`
 - status: `in progress`
 
 During work:
-- optional progress comments at milestones
+- optional progress comments only when they add value or expose a blocker
 
 On finish:
 - summary comment
-- links to PRs, commits, docs, or deployments
-- status: `done` or `review`
+- proof and links to PRs, commits, docs, or deployments
+- status: `human-review`
 
-On failure:
-- error summary
+On failure or blocked work:
+- concise error or blocker summary
 - next-step note
-- status: `blocked` or `failed`
+- status: `blocked` or the agreed fallback review status
 
 ## Error Handling
-- Gateway crashes
-  - detect missed heartbeats
-  - mark the run interrupted
-  - requeue only if safe
-- Timeouts
-  - expire the lease
-  - make the task reclaimable
-  - log timeout cause in ClickUp
-- Duplicate events
-  - use idempotency keys per task event
+- Gateway restart or temporary unavailability
+  - Bridge retries the local OpenClaw command path and reconciles existing Workboard state before creating anything new.
+- Duplicate ClickUp events
+  - Bridge uses idempotency keys and stored card mappings.
+- Dispatch failure
+  - Bridge records the failure, retries safely, and does not create duplicate cards.
 - Partial success
   - keep the useful output
-  - mark only unresolved parts as blocked
+  - move unresolved work to human review or blocked with context
 - External failures
-  - retry transient API/network issues before failing the task
+  - retry transient API or CLI issues before failing the handoff
 
 ## MVP Scope
-- One-way ingestion from ClickUp
-- Manual or semi-automatic task claim
+- One-way ingestion from ClickUp for automation-eligible tasks
+- Local CLI-based Bridge to Workboard integration
+- Workboard dispatch through the existing local OpenClaw Gateway
 - Status sync back to ClickUp
 - Completion comments with summaries and links
-- Basic error reporting
-- No advanced AI orchestration yet
+- Basic error reporting and reconciliation
 
 ## Phase 2
-- Auto-pick tasks by label or status
-- Priority queues
-- Better client/project mapping
-- PR and commit enrichment
-- Human approval gates for risky actions
-- Metrics for throughput and failures
-
-## Phase 3
-- Task decomposition into multi-step jobs
-- Smarter triage rules
-- Auto-escalation for long-blocked work
-- Workflow templates per client/project type
+- Replace or supplement CLI polling with a WebSocket RPC client
+- Add lower-latency event-driven Workboard sync
+- Add richer per-project routing rules
+- Add human approval gates for risky actions
+- Add metrics for throughput, failures, and stale claims
 
 ## Early Decisions
-- Use ClickUp webhooks, polling, or both?
-- Which ClickUp status means `ready for OpenClaw`?
-- Should OpenClaw claim tasks automatically or only when assigned?
-- Should progress comments happen on every step or only on start/end/block?
-- Which artifact links matter most?
-- What is the retry and escalation policy?
+- The default OpenClaw agent handles Bridge work for now.
+- Only the existing automation-eligible ClickUp tasks are handed off.
+- Completed OpenClaw work returns to ClickUp as `human-review`.
+- Progress comments should stay lightweight unless there is a blocker.
 
 ## Recommendation
 Start with a boring, reliable v1:
-- ClickUp status is the source of truth.
-- Run a local Tailscale bridge.
-- Process one task claim at a time per worker.
-- Enforce strict idempotency.
-- Post a summary comment and status update on completion.
-- Post a failure comment on exceptions.
+- Keep ClickUp as the source of truth.
+- Keep Bridge as the orchestrator and mapping layer.
+- Reuse the existing local OpenClaw Gateway and Workboard plugin.
+- Use the local `openclaw workboard` CLI as the first transport.
+- Move successful runs to `human-review`, not straight to done.

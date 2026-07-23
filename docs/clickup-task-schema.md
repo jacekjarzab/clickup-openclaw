@@ -18,7 +18,7 @@ Make ClickUp the source of truth for all client work while giving OpenClaw a cle
 - `ready for openclaw`
 - `in progress`
 - `blocked`
-- `review`
+- `human-review`
 - `done`
 - `closed`
 
@@ -34,7 +34,7 @@ Make ClickUp the source of truth for all client work while giving OpenClaw a cle
   - OpenClaw has claimed the task and is actively working it.
 - `blocked`
   - Work cannot continue without external input or dependency resolution.
-- `review`
+- `human-review`
   - Work is complete, but a human should validate it first.
 - `done`
   - Work is finished and accepted.
@@ -97,8 +97,8 @@ For each OpenClaw-ready task, encourage the following structure:
 ## OpenClaw Claim Rules
 
 - Only tasks with `automation_allowed = true` or `status = ready for openclaw` may be claimed automatically.
-- One active lease per task.
-- Task claims must be idempotent.
+- One active Workboard card per task in Bridge-managed automation.
+- Card creation and dispatch must be idempotent.
 - Every claim must write a `run_id` and `workboard_id`.
 - Every finish or failure must write a summary comment back to ClickUp.
 
@@ -111,6 +111,7 @@ For each OpenClaw-ready task, encourage the following structure:
 - On finish:
   - concise summary
   - links to PRs, commits, docs, or deployments
+  - successful automation returns the task to `human-review`
 - On failure:
   - error class
   - short cause
@@ -136,3 +137,23 @@ Keep the ClickUp model boring and explicit:
 - comments hold human-readable summaries
 - labels drive routing and prioritization
 
+## Bridge to Workboard Payload
+
+Bridge should create Workboard cards with this minimum contract:
+
+- `title`
+  - stable, human-readable task title from ClickUp
+- `notes`
+  - rendered task snapshot including goal, context, acceptance criteria, constraints, and links
+- `status`
+  - `ready` by default, `todo` only when the task should be queued but not dispatched yet
+- `priority`
+  - mapped from `priority_bucket`
+- `labels`
+  - source, project, work type, routing, and notable tags
+- `idempotencyKey`
+  - stable key derived from ClickUp task id and Bridge handoff rules
+- optional `agentId`
+  - omitted for now so the default OpenClaw agent is used
+- optional `boardId`
+  - used when Bridge routes cards into a dedicated board namespace

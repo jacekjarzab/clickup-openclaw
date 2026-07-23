@@ -19,6 +19,54 @@ export type PriorityBucket = (typeof priorityBuckets)[number];
 
 export const priorityBucketSchema = z.enum(priorityBuckets);
 
+export const clickupAutomationStatuses = [
+  "new",
+  "triage",
+  "ready for openclaw",
+  "in progress",
+  "blocked",
+  "human-review",
+  "done",
+  "closed",
+] as const;
+
+export type ClickUpAutomationStatus = (typeof clickupAutomationStatuses)[number];
+
+export const clickupAutomationStatusSchema = z.enum(clickupAutomationStatuses);
+
+export const openClawWorkboardCardStatuses = [
+  "triage",
+  "backlog",
+  "todo",
+  "scheduled",
+  "ready",
+  "running",
+  "review",
+  "blocked",
+  "done",
+] as const;
+
+export type OpenClawWorkboardCardStatus = (typeof openClawWorkboardCardStatuses)[number];
+
+export const openClawWorkboardCardStatusSchema = z.enum(openClawWorkboardCardStatuses);
+
+export const bridgeJobStates = [
+  "received",
+  "deduplicated",
+  "eligible",
+  "card_created",
+  "dispatched",
+  "running",
+  "blocked",
+  "completed",
+  "synced_back",
+  "dead_lettered",
+] as const;
+
+export type BridgeJobState = (typeof bridgeJobStates)[number];
+
+export const bridgeJobStateSchema = z.enum(bridgeJobStates);
+
 export const workboardStates = [
   "received",
   "normalized",
@@ -76,6 +124,137 @@ export const clickupTaskSchema = z.object({
 });
 
 export type ClickUpTask = z.infer<typeof clickupTaskSchema>;
+
+export const workboardCardPrioritySchema = priorityBucketSchema;
+
+export type WorkboardCardPriority = PriorityBucket;
+
+export const workboardCardCreateSchema = z.object({
+  title: z.string().min(1),
+  notes: z.string().min(1),
+  status: z.enum(["todo", "ready"]).default("ready"),
+  priority: workboardCardPrioritySchema.default("normal"),
+  labels: z.array(z.string().min(1)).default([]),
+  agentId: z.string().min(1).optional(),
+  boardId: z.string().min(1).optional(),
+  idempotencyKey: z.string().min(1),
+});
+
+export type WorkboardCardCreate = z.infer<typeof workboardCardCreateSchema>;
+
+export const workboardCardMetadataSchema = z.object({
+  sourceSystem: z.literal("clickup"),
+  clickupTaskId: z.string().min(1),
+  clickupStatus: clickupAutomationStatusSchema.optional(),
+  projectKey: z.string().min(1).optional(),
+  workType: z.string().min(1).optional(),
+  routingKey: z.string().min(1).optional(),
+  automationAllowed: z.boolean().optional(),
+  approvalRequired: z.boolean().optional(),
+  priorityBucket: priorityBucketSchema.optional(),
+  tags: z.array(z.string()).default([]),
+  repoUrl: z.string().min(1).optional(),
+  prUrl: z.string().min(1).optional(),
+  artifactUrl: z.string().min(1).optional(),
+  docsUrl: z.string().min(1).optional(),
+  designUrl: z.string().min(1).optional(),
+});
+
+export type WorkboardCardMetadata = z.infer<typeof workboardCardMetadataSchema>;
+
+export const bridgeToWorkboardCardSchema = z.object({
+  card: workboardCardCreateSchema,
+  metadata: workboardCardMetadataSchema,
+});
+
+export type BridgeToWorkboardCard = z.infer<typeof bridgeToWorkboardCardSchema>;
+
+export const workboardToClickUpStatusMappingSchema = z.object({
+  workboardStatus: openClawWorkboardCardStatusSchema,
+  clickupStatus: clickupAutomationStatusSchema,
+  automationState: automationStateSchema,
+  isTerminal: z.boolean(),
+  syncComment: z.boolean(),
+});
+
+export type WorkboardToClickUpStatusMapping = z.infer<typeof workboardToClickUpStatusMappingSchema>;
+
+export const workboardToClickUpStatusMappings = [
+  {
+    workboardStatus: "triage",
+    clickupStatus: "triage",
+    automationState: "candidate",
+    isTerminal: false,
+    syncComment: false,
+  },
+  {
+    workboardStatus: "backlog",
+    clickupStatus: "ready for openclaw",
+    automationState: "candidate",
+    isTerminal: false,
+    syncComment: false,
+  },
+  {
+    workboardStatus: "todo",
+    clickupStatus: "ready for openclaw",
+    automationState: "candidate",
+    isTerminal: false,
+    syncComment: false,
+  },
+  {
+    workboardStatus: "scheduled",
+    clickupStatus: "ready for openclaw",
+    automationState: "candidate",
+    isTerminal: false,
+    syncComment: false,
+  },
+  {
+    workboardStatus: "ready",
+    clickupStatus: "ready for openclaw",
+    automationState: "candidate",
+    isTerminal: false,
+    syncComment: false,
+  },
+  {
+    workboardStatus: "running",
+    clickupStatus: "in progress",
+    automationState: "running",
+    isTerminal: false,
+    syncComment: true,
+  },
+  {
+    workboardStatus: "review",
+    clickupStatus: "human-review",
+    automationState: "done",
+    isTerminal: true,
+    syncComment: true,
+  },
+  {
+    workboardStatus: "blocked",
+    clickupStatus: "blocked",
+    automationState: "blocked",
+    isTerminal: true,
+    syncComment: true,
+  },
+  {
+    workboardStatus: "done",
+    clickupStatus: "human-review",
+    automationState: "done",
+    isTerminal: true,
+    syncComment: true,
+  },
+] as const satisfies readonly WorkboardToClickUpStatusMapping[];
+
+export function getWorkboardToClickUpStatusMapping(
+  status: OpenClawWorkboardCardStatus,
+): WorkboardToClickUpStatusMapping {
+  const mapping = workboardToClickUpStatusMappings.find((item) => item.workboardStatus === status);
+  if (mapping === undefined) {
+    throw new Error(`Unsupported Workboard status: ${status}`);
+  }
+
+  return mapping;
+}
 
 export const claimRecordSchema = z.object({
   taskId: z.string().min(1),

@@ -2,16 +2,51 @@
 
 ## Purpose
 
-Define the private bridge that connects ClickUp events to OpenClaw execution while keeping the system safe, idempotent, and observable.
+Define the private bridge that connects ClickUp events to the existing local OpenClaw Gateway while keeping the system safe, idempotent, and observable.
 
 ## Scope
 
 - Ingest ClickUp events
 - Poll ClickUp as fallback
-- Normalize tasks into jobs
-- Dispatch work to OpenClaw workers
+- Normalize eligible tasks into Bridge job records
+- Create and dispatch OpenClaw Workboard cards
 - Report results back to ClickUp
-- Handle retries, failures, and stale leases
+- Handle retries, failures, and reconciliation
+
+## Contract Summary
+
+Bridge owns orchestration state and OpenClaw owns execution state.
+
+- Bridge writes a Workboard card contract with:
+  - `title`
+  - `notes`
+  - `status`
+  - `priority`
+  - `labels`
+  - optional `agentId`
+  - optional `boardId`
+  - stable `idempotencyKey`
+- Bridge also keeps machine metadata alongside that card contract:
+  - `sourceSystem = clickup`
+  - `clickupTaskId`
+  - `clickupStatus`
+  - `projectKey`
+  - `workType`
+  - `routingKey`
+  - `automationAllowed`
+  - `approvalRequired`
+  - `priorityBucket`
+  - `tags`
+  - useful artifact links already known at handoff time
+- OpenClaw Workboard returns runtime truth:
+  - card status
+  - claim state
+  - heartbeat state
+  - execution summary
+  - proof
+  - artifacts
+  - worker logs
+  - blocker reason
 
 ## Core Services
 
@@ -23,22 +58,21 @@ Define the private bridge that connects ClickUp events to OpenClaw execution whi
   - event normalization
   - task reconciliation
   - ClickUp write-back
-- Workboard Service
-  - job queue
-  - leases
-  - ownership tracking
-- Worker Runner
-  - bounded execution
-  - heartbeat emission
-  - artifact reporting
+- OpenClaw Adapter
+  - local `openclaw workboard` CLI wrapper
+  - card creation, show, list, and dispatch commands
+- Workboard Watcher
+  - reads card state
+  - detects terminal outcomes
+  - captures summary, proof, artifacts, and blocker context
 - Reporter
   - ClickUp status updates
   - comments
   - link aggregation
 - State Store
-  - job snapshots
+  - task-to-card mappings
   - idempotency keys
-  - retry counters
+  - sync timestamps
   - execution history
 
 ## Data Flow
@@ -46,81 +80,95 @@ Define the private bridge that connects ClickUp events to OpenClaw execution whi
 1. ClickUp emits a webhook or the poller detects a change.
 2. Bridge API receives the event.
 3. Sync Service deduplicates it.
-4. Sync Service maps the task to an internal job.
-5. Workboard Service decides whether the job is eligible.
-6. Worker Runner leases the job.
-7. Worker Runner performs the work.
-8. Worker Runner emits heartbeats and progress.
-9. Reporter posts the final outcome to ClickUp.
-10. State Store keeps the audit trail.
+4. Sync Service checks whether the task is automation-eligible.
+5. Sync Service maps the task to a Bridge job record.
+6. OpenClaw Adapter creates or updates the matching Workboard card.
+7. OpenClaw Adapter triggers Workboard dispatch.
+8. The default OpenClaw agent claims and performs the work.
+9. Workboard Watcher reads card state until a terminal result is reached.
+10. Reporter posts the final outcome to ClickUp.
+11. State Store keeps the audit trail.
 
-## Job States
+## Bridge States
 
 - `received`
-- `normalized`
+- `deduplicated`
 - `eligible`
-- `leased`
+- `card_created`
+- `dispatched`
 - `running`
 - `blocked`
-- `succeeded`
-- `failed`
-- `reclaimed`
+- `completed`
+- `synced_back`
 
-## Lease Rules
+## Status Mapping
 
-- Every lease has a start time and expiry.
-- Heartbeats must renew the lease before expiry.
-- Expired leases become reclaimable.
-- Only one active lease may exist per job.
-- Reclaims must be logged.
+- `triage` in Workboard maps to ClickUp `triage` with `automation_state=candidate`
+- `backlog`, `todo`, `scheduled`, and `ready` map to ClickUp `ready for openclaw` with `automation_state=candidate`
+- `running` maps to ClickUp `in progress` with `automation_state=running`
+- `review` maps to ClickUp `human-review` with `automation_state=done`
+- `blocked` maps to ClickUp `blocked` with `automation_state=blocked`
+- `done` maps to ClickUp `human-review` with `automation_state=done`
+
+Successful OpenClaw completion does not move ClickUp directly to `done` in v1.
 
 ## Idempotency Rules
 
 - Every ClickUp event gets a stable idempotency key.
-- Every claim attempt gets a unique run identifier.
-- Duplicate events must not create duplicate jobs.
-- Duplicate write-backs must not duplicate comments.
+- Every Bridge job maps to one durable Workboard card id.
+- Duplicate events must not create duplicate cards.
+- Duplicate write-backs must not duplicate comments or status updates.
+
+## Reconciliation Rules
+
+- Before creating a new card, Bridge must check its stored ClickUp to Workboard mapping.
+- If mapping exists, Bridge should read the current card instead of creating another one.
+- If the Gateway or Bridge restarts mid-run, Bridge must re-read Workboard state and resume syncing.
+- Terminal Workboard cards should not be re-dispatched unless a human explicitly requeues the task.
 
 ## Failure Handling
 
 - Webhook failure
   - fallback polling covers the gap.
-- Worker crash
-  - lease expires and the job is reclaimed.
-- API timeout
-  - retry transiently with backoff.
+- Local OpenClaw command failure
+  - retry with backoff and record the error.
+- Gateway unavailable
+  - do not create duplicate state; reconcile and retry once the Gateway is healthy.
+- Worker crash or blocked run
+  - read Workboard terminal state and write the reason back to ClickUp.
 - Permanent failure
-  - mark the task blocked or failed and write the reason to ClickUp.
+  - mark the task blocked or human-review with the reason attached.
 
 ## Reporting Contract
+
+On queue:
+
+- optional comment: `Queued for OpenClaw automation.`
 
 On start:
 
 - status to `in progress`
-- comment: `Claimed by OpenClaw, starting work.`
-
-On progress:
-
-- optional milestone comment
+- comment: `OpenClaw started work on this task.`
 
 On success:
 
-- status to `done` or `review`
+- status to `human-review`
 - summary comment
 - links to PRs, commits, docs, or deployments
 
 On failure:
 
-- status to `blocked` or `failed`
-- concise error summary
+- status to `blocked` or the agreed review fallback
+- concise error or blocker summary
 - next-step recommendation
 
 ## Security and Network Assumptions
 
-- Bridge runs inside the private network or Tailscale.
+- Bridge and OpenClaw run on the same host for v1.
+- Gateway stays loopback-only or private behind Tailscale.
 - ClickUp credentials stay server-side.
-- Workers should not need direct public internet exposure beyond required APIs.
-- All inbound events should be authenticated and verified.
+- Bridge does not expose Gateway control surfaces publicly.
+- The first transport is local CLI, not public HTTP RPC.
 
 ## Observability
 
@@ -128,19 +176,20 @@ Track at minimum:
 
 - event receive count
 - dedupe hit count
-- claimed job count
-- completed job count
-- blocked job count
-- lease expirations
-- worker crashes
-- API errors
+- eligible task count
+- card create count
+- dispatch count
+- completed task count
+- blocked task count
+- sync lag
+- Gateway or CLI failure count
 - average processing time
 
 ## Implementation Notes
 
 - Keep the first version boring.
-- Prefer one worker per job.
-- Prefer explicit statuses over hidden automation.
-- Prefer polling as a fallback, even if webhooks are enabled.
+- Reuse the existing local OpenClaw Gateway and Workboard plugin.
+- Use the default OpenClaw agent for now.
+- Prefer explicit ClickUp status transitions over hidden automation.
 - Keep ClickUp write-back a first-class feature, not an afterthought.
-
+- Consider WebSocket RPC only after the CLI-based path is stable.

@@ -3,115 +3,96 @@
 ## Phase 0: Foundations
 
 - Confirm ClickUp workspace structure
-- Define the task statuses that OpenClaw may consume
-- Define the custom fields used for automation
-- Decide whether webhooks, polling, or both will be used
-- Set up the private bridge path behind Tailscale
+- Lock the automation-eligible task filter already agreed for Bridge
+- Define the ClickUp statuses Bridge may consume and write back
+- Confirm the target human-review status in ClickUp
+- Verify the local OpenClaw Gateway and Workboard plugin runtime on the Bridge host
+- Keep the private bridge path behind Tailscale or loopback-only access
 
-## Phase 1: Sync Layer
+## Phase 1: ClickUp Ingestion and Normalization
 
-- Read ClickUp tasks from a list or folder
-- Normalize tasks into internal job records
+- Receive ClickUp webhook events
+- Poll ClickUp as a fallback reconciliation path
+- Normalize eligible tasks into Bridge job records
 - Store idempotency keys for every event
-- Detect status changes that should create or update jobs
+- Ignore non-automation tasks without side effects
 - Write back sync timestamps and last error values
 
-## Phase 2: Claim and Lease
+## Phase 2: Bridge to Workboard Handoff
 
-- Build a workboard queue
-- Add task claiming with a lease timeout
-- Prevent duplicate claims
-- Add heartbeat updates from workers
-- Reclaim stale tasks when a lease expires
+- Create an OpenClaw adapter in Bridge using the local `openclaw workboard` CLI
+- Create Workboard cards only for automation-eligible ClickUp tasks
+- Use a stable idempotency key derived from the ClickUp task id
+- Persist the ClickUp task id to Workboard card id mapping
+- Attach normalized task context to the card title, notes, labels, and priority
+- Trigger `openclaw workboard dispatch` after eligible card creation or update
 
-## Phase 3: Execution Wrapper
+## Phase 3: OpenClaw Execution Lifecycle
 
-- Launch bounded worker runs
-- Pass task payload snapshots into the worker
-- Track retry counts
-- Capture logs and structured progress events
-- Support graceful cancellation and failure reporting
+- Let the default OpenClaw agent process Workboard cards
+- Treat Workboard claim, heartbeat, blocking, and completion as execution truth
+- Read Workboard card state and linked run data from Bridge
+- Detect terminal states: `review`, `done`, `blocked`
+- Capture worker summary, proof, artifacts, comments, and blocker context
+- Handle Gateway restarts or stale claims by re-reading Workboard state before retrying Bridge actions
 
-## Phase 4: Reporting
+## Phase 4: ClickUp Write-Back
 
-- Post a start comment to the ClickUp task
-- Post milestone comments during execution
-- Post a completion summary
-- Post error summaries for failures and blocked work
-- Update ClickUp status and custom fields on every terminal outcome
+- Post a start comment to the ClickUp task when Bridge observes Workboard execution start
+- Move the task to ClickUp `in progress` when Workboard enters `running`
+- Move the task to ClickUp `human-review` when OpenClaw finishes successfully
+- Post completion summaries with proof and useful artifact links
+- Post blocked or failure summaries with concise next-step context
+- Prevent duplicate comments or duplicate terminal updates
 
-## Phase 5: Artifact Linking
+## Phase 5: Status Mapping and Contract Hardening
 
-- Capture repo URLs
-- Capture PR URLs
-- Capture deployment or preview URLs
-- Capture docs or design links
-- Include all useful links in the final ClickUp comment
+- Finalize the Bridge to Workboard card payload contract
+- Finalize the Workboard to ClickUp status mapping table
+- Define what Bridge writes into ClickUp custom fields such as `run_id`, `workboard_id`, and sync metadata
+- Define how retries behave for duplicate webhook delivery, CLI failure, and temporary Gateway unavailability
+- Define which terminal outcomes require human review versus blocked status
 
 ## Phase 6: Reliability
 
-- Add retry policy for transient API failures
-- Add dead-letter handling for repeated failures
-- Add heartbeat monitoring
-- Add alerting for crashes and queue stalls
-- Add visibility into throughput and latency
+- Add retry policy for transient ClickUp, Gateway, or CLI failures
+- Add dead-letter handling for repeated handoff failures
+- Add detection for stale Workboard claims and interrupted runs
+- Add visibility into dispatch failures, queue stalls, and sync lag
+- Add restart-safe reconciliation so Bridge can resume after crashes without duplicate card creation
 
 ## Phase 7: Operator Controls
 
-- Add manual claim and release
-- Add pause and resume controls
-- Add a “force review” path
-- Add a “requeue” path
-- Add a “mark blocked” path with reason text
+- Add manual re-dispatch for eligible cards
+- Add a force-sync path from Workboard back to ClickUp
+- Add a requeue path for tasks returned from review or failure
+- Add a mark-blocked path with reason text
+- Add a force-human-review path when OpenClaw output should be inspected without further automation
 
 ## Phase 8: Quality and Scale
 
-- Support multiple workers
-- Support multiple projects or clients
-- Add per-project routing rules
-- Add task templates by work type
-- Add dashboards for queue health and completion rates
-
-## Phase 9: Routing and Priority
-
-- Auto-pick tasks by label or status
-- Add priority queues
-- Improve client and project mapping
-- Add PR and commit enrichment
-- Add human approval gates for risky actions
-- Expand metrics for throughput and failures
-
-## Phase 10: Smarter Automation
-
-- Add workflow templates per client or project type
-- Add task decomposition into multi-step jobs
-- Add smarter triage rules
-- Add auto-escalation for long-blocked work
-
-## Phase 11: Always-On Worker Runtime
-
-- Run the OpenClaw worker as a proper always-on daemon on the local machine
-- Connect the worker to the existing bridge/gateway over localhost or Tailscale
-- Add resilient reconnect, backoff, and startup health checks
-- Keep heartbeats and terminal reporting running continuously
-- Add a clean shutdown path that finalizes or cancels active runs safely
+- Support multiple ClickUp lists, folders, or projects with the same Bridge rules
+- Support per-project routing labels and metadata on Workboard cards
+- Add dashboards for queue health, sync lag, and completion rates
+- Add reporting for throughput and blocked-task categories
+- Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
 
 ## Recommended First Build Order
 
-1. ClickUp read sync
-2. Workboard queue
-3. Task claim and lease
-4. Worker execution wrapper
-5. Write-back reporting
-6. Failure handling
-7. Artifact link capture
-8. Manual controls
-9. Long-lived worker daemon
+1. ClickUp read sync and task eligibility filter
+2. Bridge job normalization and idempotency store
+3. OpenClaw CLI adapter and Workboard card creation
+4. Dispatch and watcher loop
+5. ClickUp write-back to `in progress` and `human-review`
+6. Failure handling and restart-safe reconciliation
+7. Artifact, proof, and summary enrichment
+8. Operator controls and dashboards
 
 ## Success Criteria
 
-- A ClickUp task can be claimed once and only once.
-- OpenClaw can finish a task and write the summary back.
-- Crashes and timeouts are visible in ClickUp.
-- The system can recover without duplicate task execution.
-- A worker can run continuously without human babysitting.
+- Only automation-eligible ClickUp tasks are handed to OpenClaw.
+- One eligible ClickUp task maps to one active Workboard card.
+- Bridge can dispatch work into the existing local OpenClaw Gateway.
+- OpenClaw can finish a task and Bridge moves it to `human-review`.
+- Blocked, failed, and interrupted runs are visible in ClickUp.
+- The system can recover after Bridge or Gateway restarts without duplicate task execution.
