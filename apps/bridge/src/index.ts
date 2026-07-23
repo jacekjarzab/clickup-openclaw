@@ -269,6 +269,16 @@ async function main(): Promise<void> {
 
     interval.unref();
   }
+
+  if (Number.isFinite(services.openClawWatchIntervalMs) && services.openClawWatchIntervalMs > 0) {
+    const interval = setInterval(() => {
+      void services.watchOpenClawCards().catch((error: unknown) => {
+        services.logger.warn("openclaw card watcher failed", { error: String(error) });
+      });
+    }, services.openClawWatchIntervalMs);
+
+    interval.unref();
+  }
 }
 
 void main().catch((error: unknown) => {

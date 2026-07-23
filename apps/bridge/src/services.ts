@@ -809,6 +809,7 @@ export function createBridgeServices(config: BridgeConfig) {
   const docsUrl = config.DOCS_URL ?? config.CLICKUP_DOCS_URL;
   const designUrl = config.DESIGN_URL ?? config.CLICKUP_DESIGN_URL;
   const heartbeatMonitorIntervalMs = Number(config.HEARTBEAT_MONITOR_INTERVAL_MS ?? "60000");
+  const openClawWatchIntervalMs = Number(config.OPENCLAW_WATCH_INTERVAL_MS ?? "15000");
   const queueStallAlertMs = toNumber(config.QUEUE_STALL_ALERT_MS, 10 * 60 * 1000);
   const blockedEscalationMs = toNumber(config.BLOCKED_ESCALATION_MS, 4 * 60 * 60 * 1000);
   const projectRoutingRules = parseProjectRoutingRules(config.PROJECT_ROUTING_JSON);
@@ -1138,7 +1139,14 @@ export function createBridgeServices(config: BridgeConfig) {
   }
 
   async function watchOpenClawCards() {
-    const jobs = state.listJobs().filter((job) => job.workboardCardId !== undefined);
+    const jobs = state.listJobs().filter(
+      (job) =>
+        job.workboardCardId !== undefined &&
+        job.bridgeState !== "synced_back" &&
+        job.openClawCardStatus !== "review" &&
+        job.openClawCardStatus !== "done" &&
+        job.openClawCardStatus !== "blocked",
+    );
     const results: Array<Record<string, unknown>> = [];
 
     for (const job of jobs) {
@@ -1653,6 +1661,7 @@ export function createBridgeServices(config: BridgeConfig) {
     return {
       paused,
       heartbeatMonitorIntervalMs,
+      openClawWatchIntervalMs,
       queueStallAlertMs,
       blockedEscalationMs,
     };
@@ -2250,6 +2259,7 @@ export function createBridgeServices(config: BridgeConfig) {
     completeJob,
     monitorHeartbeats,
     heartbeatMonitorIntervalMs,
+    openClawWatchIntervalMs,
     queueStallAlertMs,
     getMetricsSnapshot,
     getDashboardSnapshot,
