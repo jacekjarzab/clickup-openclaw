@@ -1,20 +1,17 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import {
   bridgeToWorkboardCardSchema,
   openClawWorkboardCardStatusSchema,
-  type OpenClawTerminalContext,
   type BridgeToWorkboardCard,
+  type OpenClawTerminalContext,
   type OpenClawWorkboardCardStatus,
 } from "@clickup-openclaw/shared";
-
-const execFileAsync = promisify(execFile);
-
-type CommandResult = {
-  stdout: string;
-  stderr: string;
-};
+import {
+  type OpenClawWorkboardTransport,
+  type OpenClawTransportOperationName,
+  type OpenClawTransportSnapshot,
+  type OpenClawWorkboardCardSummary,
+  type OpenClawWorkboardDispatchResult,
+} from "./openclaw-workboard.js";
 
 type RetryOptions = {
   attempts: number;
@@ -22,82 +19,39 @@ type RetryOptions = {
   maxDelayMs: number;
 };
 
-export type OpenClawCommandRunner = (
-  command: string,
-  args: string[],
-  options: { cwd?: string; timeoutMs?: number },
-) => Promise<CommandResult>;
-
-export type OpenClawWorkboardDispatchResult = {
-  failures?: number;
-  gatewayUnavailable?: boolean;
-  started?: number;
-  [key: string]: unknown;
+type WebSocketLike = {
+  readyState: number;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+  onopen: ((event: { type: "open" }) => void) | null;
+  onmessage: ((event: { data: string }) => void) | null;
+  onerror: ((event: { error?: unknown }) => void) | null;
+  onclose: ((event: { code: number; reason: string }) => void) | null;
 };
 
-export type OpenClawTransportOperationName = "createCard" | "showCard" | "listCards" | "dispatch";
+type WebSocketConstructorLike = new (url: string, protocols?: string | string[]) => WebSocketLike;
 
-export type OpenClawTransportOperationSnapshot = {
-  calls: number;
-  failures: number;
-  lastError?: string | undefined;
-  retries: number;
-  averageDurationMs: number;
+type WebSocketRpcErrorPayload = {
+  code?: number;
+  message: string;
+  data?: unknown;
 };
 
-export type OpenClawTransportSnapshot = {
-  mode: "cli" | "websocket";
-  binary?: string | undefined;
-  endpoint?: string | undefined;
-  boardId: string | undefined;
-  operations: Record<OpenClawTransportOperationName, OpenClawTransportOperationSnapshot>;
-  connectionAttempts: number;
-  connectionFailures: number;
-  recentFailures: Array<{
-    at: string;
-    error: string;
-    operation: OpenClawTransportOperationName;
-  }>;
+type WebSocketRpcResponse = {
+  jsonrpc: "2.0";
+  id: number;
+  result?: unknown;
+  error?: WebSocketRpcErrorPayload;
 };
 
-export interface OpenClawWorkboardTransport {
-  createCard(input: BridgeToWorkboardCard): Promise<OpenClawWorkboardCardSummary>;
-  showCard(id: string): Promise<OpenClawWorkboardCardSummary>;
-  listCards(input?: {
-    boardId?: string;
-    status?: OpenClawWorkboardCardStatus;
-  }): Promise<OpenClawWorkboardCardSummary[]>;
-  dispatch(input?: { boardId?: string; maxStarts?: number }): Promise<OpenClawWorkboardDispatchResult>;
-  getTransportSnapshot(): OpenClawTransportSnapshot;
-}
-
-export type OpenClawWorkboardCardSummary = {
-  id: string;
-  status?: OpenClawWorkboardCardStatus | undefined;
-  terminalContext?: OpenClawTerminalContext | undefined;
-  raw: Record<string, unknown>;
-};
-
-export type OpenClawWorkboardAdapterOptions = {
-  binary?: string;
+export type OpenClawWebSocketWorkboardAdapterOptions = {
+  url: string;
   boardId?: string;
-  cwd?: string;
-  runner?: OpenClawCommandRunner;
-  timeoutMs?: number;
+  protocols?: string | string[];
   retry?: Partial<RetryOptions>;
+  timeoutMs?: number;
+  socketFactory?: (url: string, protocols?: string | string[]) => WebSocketLike;
 };
-
-function defaultRunner(
-  command: string,
-  args: string[],
-  options: { cwd?: string; timeoutMs?: number },
-): Promise<CommandResult> {
-  return execFileAsync(command, args, {
-    cwd: options.cwd,
-    timeout: options.timeoutMs,
-    maxBuffer: 1024 * 1024 * 8,
-  });
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -107,7 +61,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isRetriableOpenClawError(error: unknown): boolean {
+function isRetriableWebSocketError(error: unknown): boolean {
   if (error !== null && typeof error === "object" && "retriable" in error) {
     const retriable = (error as { retriable?: unknown }).retriable;
     if (typeof retriable === "boolean") {
@@ -117,29 +71,17 @@ function isRetriableOpenClawError(error: unknown): boolean {
 
   const message = errorMessage(error).toLowerCase();
   return (
-    message.includes("gateway unavailable") ||
+    message.includes("close before") ||
+    message.includes("closed before") ||
     message.includes("temporary") ||
-    message.includes("temporarily unavailable") ||
-    message.includes("connection refused") ||
-    message.includes("econnrefused") ||
-    message.includes("econnreset") ||
-    message.includes("socket hang up") ||
-    message.includes("etimedout") ||
-    message.includes("timed out") ||
     message.includes("timeout") ||
-    message.includes("fetch failed") ||
-    message.includes("i/o error") ||
-    message.includes("broken pipe")
+    message.includes("timed out") ||
+    message.includes("socket") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused") ||
+    message.includes("unavailable") ||
+    message.includes("fetch failed")
   );
-}
-
-function parseJsonObject(stdout: string): Record<string, unknown> {
-  const parsed = JSON.parse(stdout) as unknown;
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Expected JSON object from openclaw workboard command");
-  }
-
-  return parsed as Record<string, unknown>;
 }
 
 function normalizeCardStatus(value: unknown): OpenClawWorkboardCardStatus | undefined {
@@ -149,24 +91,6 @@ function normalizeCardStatus(value: unknown): OpenClawWorkboardCardStatus | unde
 
   const parsed = openClawWorkboardCardStatusSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
-}
-
-function buildRunnerOptions(cwd: string | undefined, timeoutMs: number): { cwd?: string; timeoutMs?: number } {
-  return {
-    ...(cwd === undefined ? {} : { cwd }),
-    timeoutMs,
-  };
-}
-
-function toCardSummary(id: string, raw: Record<string, unknown>): OpenClawWorkboardCardSummary {
-  const status = normalizeCardStatus(raw.status);
-  const terminalContext = status === undefined ? undefined : extractTerminalContext(raw, status);
-  return {
-    id,
-    raw,
-    ...(terminalContext === undefined ? {} : { terminalContext }),
-    ...(status === undefined ? {} : { status }),
-  };
 }
 
 function readNestedString(record: Record<string, unknown>, path: string[]): string | undefined {
@@ -199,7 +123,6 @@ function readTerminalArtifactList(value: unknown): Array<string | Record<string,
   }
 
   const artifacts: Array<string | Record<string, unknown>> = [];
-
   for (const item of value) {
     if (typeof item === "string") {
       const trimmed = item.trim();
@@ -221,20 +144,13 @@ function readTerminalArtifactList(value: unknown): Array<string | Record<string,
 
       if (title !== undefined && url !== undefined) {
         artifacts.push({ title, url });
-        continue;
-      }
-
-      if (url !== undefined) {
+      } else if (url !== undefined) {
         artifacts.push(url);
-        continue;
-      }
-
-      if (title !== undefined) {
+      } else if (title !== undefined) {
         artifacts.push(title);
-        continue;
+      } else {
+        artifacts.push(record);
       }
-
-      artifacts.push(record);
     }
   }
 
@@ -315,31 +231,38 @@ function extractTerminalContext(
   };
 }
 
-export function renderBridgeMetadataBlock(payload: BridgeToWorkboardCard): string {
-  return [
-    "## Bridge metadata",
-    "```json",
-    JSON.stringify(payload.metadata, null, 2),
-    "```",
-  ].join("\n");
+function toCardSummary(id: string, raw: Record<string, unknown>): OpenClawWorkboardCardSummary {
+  const status = normalizeCardStatus(raw.status);
+  const terminalContext = status === undefined ? undefined : extractTerminalContext(raw, status);
+  return {
+    id,
+    raw,
+    ...(terminalContext === undefined ? {} : { terminalContext }),
+    ...(status === undefined ? {} : { status }),
+  };
 }
 
-export function buildOpenClawNotes(payload: BridgeToWorkboardCard): string {
-  return [payload.card.notes, renderBridgeMetadataBlock(payload)].join("\n\n");
+function createDefaultSocket(url: string, protocols?: string | string[]): WebSocketLike {
+  const WebSocketCtor = (globalThis as { WebSocket?: WebSocketConstructorLike }).WebSocket;
+  if (WebSocketCtor === undefined) {
+    throw new Error("WebSocket API is not available in this runtime");
+  }
+
+  return new WebSocketCtor(url, protocols);
 }
 
-export class OpenClawWorkboardAdapter {
-  private readonly binary: string;
+export class OpenClawWebSocketWorkboardAdapter implements OpenClawWorkboardTransport {
+  private readonly url: string;
 
   private readonly boardId: string | undefined;
 
-  private readonly cwd: string | undefined;
-
-  private readonly runner: OpenClawCommandRunner;
+  private readonly protocols: string | string[] | undefined;
 
   private readonly timeoutMs: number;
 
   private readonly retry: RetryOptions;
+
+  private readonly socketFactory: (url: string, protocols?: string | string[]) => WebSocketLike;
 
   private readonly transportStats: Record<
     OpenClawTransportOperationName,
@@ -358,17 +281,17 @@ export class OpenClawWorkboardAdapter {
     operation: OpenClawTransportOperationName;
   }>;
 
-  constructor(options: OpenClawWorkboardAdapterOptions = {}) {
-    this.binary = options.binary ?? "openclaw";
+  constructor(options: OpenClawWebSocketWorkboardAdapterOptions) {
+    this.url = options.url;
     this.boardId = options.boardId;
-    this.cwd = options.cwd;
-    this.runner = options.runner ?? defaultRunner;
-    this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.protocols = options.protocols;
+    this.timeoutMs = options.timeoutMs ?? 15_000;
     this.retry = {
       attempts: Math.max(1, options.retry?.attempts ?? 3),
       baseDelayMs: Math.max(0, options.retry?.baseDelayMs ?? 250),
       maxDelayMs: Math.max(0, options.retry?.maxDelayMs ?? 2_000),
     };
+    this.socketFactory = options.socketFactory ?? createDefaultSocket;
     this.transportStats = {
       createCard: { calls: 0, failures: 0, lastError: undefined, retries: 0, totalDurationMs: 0 },
       showCard: { calls: 0, failures: 0, lastError: undefined, retries: 0, totalDurationMs: 0 },
@@ -417,12 +340,10 @@ export class OpenClawWorkboardAdapter {
         this.recordTransportOutcome(operation, Date.now() - startedAt, attempts + 1);
         return result;
       } catch (error) {
-        if (!isRetriableOpenClawError(error) || attempts + 1 >= this.retry.attempts) {
-          const failureMessage = error instanceof Error ? error.message : String(error);
+        if (!isRetriableWebSocketError(error) || attempts + 1 >= this.retry.attempts) {
+          const failureMessage = errorMessage(error);
           this.recordTransportOutcome(operation, Date.now() - startedAt, attempts + 1, failureMessage);
-          throw error instanceof Error
-            ? error
-            : new Error(`Failed to ${label} openclaw workboard`);
+          throw error instanceof Error ? error : new Error(`Failed to ${label} openclaw websocket`);
         }
 
         const delayMs = Math.min(this.retry.baseDelayMs * 2 ** attempts, this.retry.maxDelayMs);
@@ -430,114 +351,143 @@ export class OpenClawWorkboardAdapter {
       }
     }
 
-    throw new Error(`Failed to ${label} openclaw workboard`);
+    throw new Error(`Failed to ${label} openclaw websocket`);
+  }
+
+  private async request<T>(
+    operation: OpenClawTransportOperationName,
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<T> {
+    const requestId = Math.floor(Date.now() + Math.random() * 1_000_000);
+    const payload = {
+      jsonrpc: "2.0" as const,
+      id: requestId,
+      method,
+      ...(params === undefined ? {} : { params }),
+    };
+
+    return this.runWithRetry(operation, method, async () => {
+      const startedAt = Date.now();
+      let socket: WebSocketLike | undefined;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+      socket = this.socketFactory(this.url, this.protocols);
+
+      return await new Promise<T>((resolve, reject) => {
+        let settled = false;
+
+        const settle = (error?: unknown, result?: T) => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+            timeoutId = undefined;
+          }
+
+          try {
+            socket?.close();
+          } catch {
+            // Ignore close failures during cleanup.
+          }
+
+          if (error !== undefined) {
+            reject(error);
+            return;
+          }
+
+          resolve(result as T);
+        };
+
+        timeoutId = setTimeout(() => {
+          settle(new Error(`Timed out waiting for ${method} websocket response`));
+        }, this.timeoutMs);
+
+        socket!.onopen = () => {
+          try {
+            socket!.send(JSON.stringify(payload));
+          } catch (error) {
+            settle(error);
+          }
+        };
+
+        socket!.onmessage = (event) => {
+          try {
+            const response = JSON.parse(String(event.data)) as WebSocketRpcResponse;
+            if (response.jsonrpc !== "2.0" || response.id !== requestId) {
+              settle(new Error(`Unexpected websocket response for ${method}`));
+              return;
+            }
+
+            if (response.error !== undefined) {
+              settle(new Error(response.error.message));
+              return;
+            }
+
+            settle(undefined, response.result as T);
+          } catch (error) {
+            settle(error);
+          }
+        };
+
+        socket!.onerror = () => {
+          settle(new Error(`WebSocket error while calling ${method}`));
+        };
+
+        socket!.onclose = () => {
+          settle(new Error(`WebSocket closed before ${method} completed`));
+        };
+      });
+    });
   }
 
   async createCard(input: BridgeToWorkboardCard): Promise<OpenClawWorkboardCardSummary> {
-    return this.runWithRetry("createCard", "create card", async () => {
-      const payload = bridgeToWorkboardCardSchema.parse(input);
-      const args = [
-        "workboard",
-        "create",
-        payload.card.title,
-        "--notes",
-        buildOpenClawNotes(payload),
-        "--status",
-        payload.card.status,
-        "--priority",
-        payload.card.priority,
-        "--json",
-      ];
-
-      const boardId = payload.card.boardId ?? this.boardId;
-      if (boardId !== undefined) {
-        args.push("--board", boardId);
-      }
-
-      if (payload.card.agentId !== undefined) {
-        args.push("--agent", payload.card.agentId);
-      }
-
-      if (payload.card.labels.length > 0) {
-        args.push("--labels", payload.card.labels.join(","));
-      }
-
-      const { stdout } = await this.runner(
-        this.binary,
-        args,
-        buildRunnerOptions(this.cwd, this.timeoutMs),
-      );
-      const raw = parseJsonObject(stdout);
-      const id = typeof raw.id === "string" ? raw.id : undefined;
-      if (id === undefined) {
-        throw new Error("OpenClaw card create response did not include an id");
-      }
-
-      return toCardSummary(id, raw);
+    const payload = bridgeToWorkboardCardSchema.parse(input);
+    const result = await this.request<Record<string, unknown>>("createCard", "workboard.create", {
+      ...(this.boardId === undefined ? {} : { boardId: this.boardId }),
+      payload,
     });
+    const id = typeof result.id === "string" ? result.id : undefined;
+    if (id === undefined) {
+      throw new Error("WebSocket workboard create response did not include an id");
+    }
+
+    return toCardSummary(id, result);
   }
 
   async showCard(id: string): Promise<OpenClawWorkboardCardSummary> {
-    return this.runWithRetry("showCard", `show card ${id}`, async () => {
-      const { stdout } = await this.runner(
-        this.binary,
-        ["workboard", "show", id, "--json"],
-        buildRunnerOptions(this.cwd, this.timeoutMs),
-      );
-      const raw = parseJsonObject(stdout);
-      return toCardSummary(typeof raw.id === "string" ? raw.id : id, raw);
+    const result = await this.request<Record<string, unknown>>("showCard", "workboard.show", {
+      cardId: id,
     });
+    return toCardSummary(typeof result.id === "string" ? result.id : id, result);
   }
 
-  async listCards(input: {
-    boardId?: string;
-    status?: OpenClawWorkboardCardStatus;
-  } = {}): Promise<OpenClawWorkboardCardSummary[]> {
-    const args = ["workboard", "list", "--json"];
+  async listCards(input: { boardId?: string; status?: OpenClawWorkboardCardStatus } = {}): Promise<OpenClawWorkboardCardSummary[]> {
     const boardId = input.boardId ?? this.boardId;
-    if (boardId !== undefined) {
-      args.push("--board", boardId);
-    }
-    if (input.status !== undefined) {
-      args.push("--status", input.status);
-    }
-
-    return this.runWithRetry("listCards", "list cards", async () => {
-      const { stdout } = await this.runner(
-        this.binary,
-        args,
-        buildRunnerOptions(this.cwd, this.timeoutMs),
-      );
-      const parsed = JSON.parse(stdout) as unknown;
-      if (!Array.isArray(parsed)) {
-        throw new Error("Expected JSON array from openclaw workboard list");
-      }
-
-      return parsed
-        .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
-        .map((raw) => toCardSummary(typeof raw.id === "string" ? raw.id : "", raw))
-        .filter((item) => item.id.length > 0);
+    const result = await this.request<unknown>("listCards", "workboard.list", {
+      ...(boardId === undefined ? {} : { boardId }),
+      ...(input.status === undefined ? {} : { status: input.status }),
     });
+
+    if (!Array.isArray(result)) {
+      throw new Error("Expected array result from WebSocket workboard list");
+    }
+
+    return result
+      .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
+      .map((raw) => toCardSummary(typeof raw.id === "string" ? raw.id : "", raw))
+      .filter((item) => item.id.length > 0);
   }
 
   async dispatch(input: { boardId?: string; maxStarts?: number } = {}): Promise<OpenClawWorkboardDispatchResult> {
-    const args = ["workboard", "dispatch", "--json"];
     const boardId = input.boardId ?? this.boardId;
-    if (boardId !== undefined) {
-      args.push("--board", boardId);
-    }
-    if (input.maxStarts !== undefined) {
-      args.push("--max-starts", String(input.maxStarts));
-    }
-
-    return this.runWithRetry("dispatch", "dispatch workboard", async () => {
-      const { stdout } = await this.runner(
-        this.binary,
-        args,
-        buildRunnerOptions(this.cwd, this.timeoutMs),
-      );
-
-      return parseJsonObject(stdout);
+    return this.request<OpenClawWorkboardDispatchResult>("dispatch", "workboard.dispatch", {
+      ...(boardId === undefined ? {} : { boardId }),
+      ...(input.maxStarts === undefined ? {} : { maxStarts: input.maxStarts }),
     });
   }
 
@@ -555,15 +505,27 @@ export class OpenClawWorkboardAdapter {
           averageDurationMs: stats.calls === 0 ? 0 : Math.round(stats.totalDurationMs / stats.calls),
         },
       ]),
-    ) as Record<OpenClawTransportOperationName, OpenClawTransportOperationSnapshot>;
+    ) as OpenClawTransportSnapshot["operations"];
 
     return {
-      mode: "cli",
-      binary: this.binary,
+      mode: "websocket",
+      endpoint: this.url,
       boardId: this.boardId,
       operations,
-      connectionAttempts: 0,
-      connectionFailures: 0,
+      connectionAttempts:
+        operations.createCard.calls +
+        operations.createCard.retries +
+        operations.showCard.calls +
+        operations.showCard.retries +
+        operations.listCards.calls +
+        operations.listCards.retries +
+        operations.dispatch.calls +
+        operations.dispatch.retries,
+      connectionFailures:
+        operations.createCard.failures +
+        operations.showCard.failures +
+        operations.listCards.failures +
+        operations.dispatch.failures,
       recentFailures: this.recentFailures.slice(),
     };
   }

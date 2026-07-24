@@ -169,6 +169,7 @@
   - Compare latency, reconnect behavior, and operator overhead against the CLI path
   - Document the criteria that would justify adoption
   - Implemented: the CLI adapter now emits transport timing and failure telemetry for baseline comparison
+  - Implemented: the Bridge can switch to a websocket transport when configured and the websocket adapter reports matching transport telemetry
 
 ## Recommended First Build Order
 

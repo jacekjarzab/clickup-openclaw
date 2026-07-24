@@ -17,7 +17,11 @@ import {
 import { FileBackedStateStore, InMemoryStateStore, type JobRecord } from "@clickup-openclaw/state";
 
 import type { BridgeConfig } from "./config.js";
-import { OpenClawWorkboardAdapter } from "./openclaw-workboard.js";
+import {
+  OpenClawWorkboardAdapter,
+  type OpenClawWorkboardTransport,
+} from "./openclaw-workboard.js";
+import { OpenClawWebSocketWorkboardAdapter } from "./openclaw-websocket-workboard.js";
 import { resolveRepoUrl } from "./repo-url.js";
 
 type WorkTypeTemplate = {
@@ -1210,8 +1214,36 @@ function buildRetryDelayMs(attempt: number, policy: BridgeRetryPolicy): number {
 
 type BridgeServiceDependencies = {
   stateStore?: FileBackedStateStore | InMemoryStateStore;
-  openClawWorkboard?: OpenClawWorkboardAdapter;
+  openClawWorkboard?: OpenClawWorkboardTransport;
 };
+
+function createOpenClawWorkboardTransport(config: BridgeConfig): OpenClawWorkboardTransport {
+  if (config.OPENCLAW_WORKBOARD_TRANSPORT === "websocket") {
+    if (config.OPENCLAW_WORKBOARD_WS_URL === undefined) {
+      throw new Error("OPENCLAW_WORKBOARD_WS_URL is required when OPENCLAW_WORKBOARD_TRANSPORT=websocket");
+    }
+
+    return new OpenClawWebSocketWorkboardAdapter({
+      url: config.OPENCLAW_WORKBOARD_WS_URL,
+      ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+        ? {}
+        : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+      ...(config.OPENCLAW_WORKBOARD_WS_PROTOCOL === undefined
+        ? {}
+        : { protocols: config.OPENCLAW_WORKBOARD_WS_PROTOCOL }),
+      timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_WS_TIMEOUT_MS, 15_000),
+    });
+  }
+
+  return new OpenClawWorkboardAdapter({
+    ...(config.OPENCLAW_BIN === undefined ? {} : { binary: config.OPENCLAW_BIN }),
+    ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+      ? {}
+      : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+    cwd: process.cwd(),
+    timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS, 30_000),
+  });
+}
 
 export function createBridgeServices(config: BridgeConfig, dependencies: BridgeServiceDependencies = {}) {
   const logger = createLogger("bridge");
@@ -1263,16 +1295,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
           token: config.CLICKUP_API_TOKEN,
           ...(config.CLICKUP_BASE_URL === undefined ? {} : { baseUrl: config.CLICKUP_BASE_URL }),
         });
-  const openClawWorkboard =
-    dependencies.openClawWorkboard ??
-    new OpenClawWorkboardAdapter({
-      ...(config.OPENCLAW_BIN === undefined ? {} : { binary: config.OPENCLAW_BIN }),
-      ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
-        ? {}
-        : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
-      cwd: process.cwd(),
-      timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS, 30_000),
-    });
+  const openClawWorkboard = dependencies.openClawWorkboard ?? createOpenClawWorkboardTransport(config);
 
   function renderTaskSnapshotForWorkboard(job: ReturnType<typeof state.getJob> extends infer T ? T : never): string {
     if (job === undefined) {

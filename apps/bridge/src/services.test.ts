@@ -122,6 +122,8 @@ class FakeOpenClawWorkboardAdapter {
         listCards: { calls: 0, failures: 0, lastError: undefined, retries: 0, averageDurationMs: 0 },
         dispatch: { calls: 0, failures: 0, lastError: undefined, retries: 0, averageDurationMs: 0 },
       },
+      connectionAttempts: 0,
+      connectionFailures: 0,
       recentFailures: [],
     };
   }
@@ -409,6 +411,24 @@ test("dashboard snapshot reports routing throughput and blocked categories", () 
     dashboard.completionRates.byBlockedCategory.find((item) => item.category === "environment")?.total,
     1,
   );
+});
+
+test("bridge dashboard reports websocket transport mode when configured", () => {
+  const services = createBridgeServices(
+    buildConfig({
+      OPENCLAW_WORKBOARD_TRANSPORT: "websocket",
+      OPENCLAW_WORKBOARD_WS_URL: "ws://example.invalid/workboard",
+    }),
+    {
+      stateStore: new InMemoryStateStore(),
+    },
+  );
+
+  const dashboard = services.getDashboardSnapshot({ now: "2026-07-23T13:00:00.000Z" });
+
+  assert.equal(dashboard.transport.mode, "websocket");
+  assert.equal(dashboard.transport.endpoint, "ws://example.invalid/workboard");
+  assert.equal(dashboard.transport.operations.createCard.calls, 0);
 });
 
 test("dispatchOpenClawWorkboard only advances queued cards", async () => {
