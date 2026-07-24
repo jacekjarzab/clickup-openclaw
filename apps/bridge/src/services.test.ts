@@ -346,6 +346,50 @@ test("handoff retries transient gateway failures and dead-letters after repeated
   assert.match(job?.deadLetterReason ?? "", /temporary gateway unavailable/);
 });
 
+test("handoff clears failed outcome after a successful retry", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.createFailures.push(new Error("temporary gateway unavailable"));
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  state.upsertJob(
+    buildJobRecord("task-recover", {
+      bridgeState: "eligible",
+      outcome: "failed",
+      lastError: "temporary gateway unavailable",
+    }),
+  );
+
+  const result = await services.handoffJobToOpenClaw("task-recover");
+
+  assert.equal(adapter.createAttempts, 2);
+  assert.equal(result.duplicate, false);
+  assert.equal(services.state.getJob("task-recover")?.outcome, undefined);
+  assert.equal(services.state.getJob("task-recover")?.lastError, undefined);
+});
+
+test("handoff does not retry bridge errors that merely mention 500 in identifiers", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.createFailures.push(new Error("OpenClaw card card-5001 not found: 404"));
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  state.upsertJob(
+    buildJobRecord("task-5001", {
+      bridgeState: "eligible",
+    }),
+  );
+
+  await assert.rejects(async () => services.handoffJobToOpenClaw("task-5001"), /404/);
+  assert.equal(adapter.createAttempts, 1);
+});
+
 test("dispatch retries transient failures and dead-letters queued cards after the threshold", async () => {
   const state = new InMemoryStateStore();
   const adapter = new FakeOpenClawWorkboardAdapter();
@@ -401,6 +445,85 @@ test("handoff stops retrying contract errors after the first failure", async () 
   assert.equal(job?.outcome, "failed");
   assert.equal(job?.retryCount, 1);
   assert.equal(job?.deadLetteredAt, undefined);
+});
+
+test("sync rereads the card on retry instead of reusing stale state", async () => {
+  const originalFetch = globalThis.fetch;
+  const clickUpCalls: Array<{ url: string; method: string; body?: string | undefined }> = [];
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  let putAttempts = 0;
+
+  adapter.showResponses.set("card-sync", {
+    status: "running",
+    raw: {
+      id: "card-sync",
+      status: "running",
+      summary: "Initial running state.",
+    },
+  });
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    clickUpCalls.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+
+    if ((init?.method ?? "GET") === "PUT" && String(url).includes("/task/task-sync")) {
+      putAttempts += 1;
+      if (putAttempts === 1) {
+        adapter.showResponses.set("card-sync", {
+          status: "done",
+          raw: {
+            id: "card-sync",
+            status: "done",
+            summary: "Completed after the retry.",
+          },
+        });
+
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({}),
+        } as Response;
+      }
+    }
+
+    return {
+      ok: true,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const state = new InMemoryStateStore();
+    state.upsertJob(
+      buildJobRecord("task-sync", {
+        bridgeState: "dispatched",
+        workboardCardId: "card-sync",
+        openClawCardStatus: "running",
+        dispatchedAt: "2026-07-23T10:05:00.000Z",
+        claimedAt: "2026-07-23T10:00:00.000Z",
+      }),
+    );
+
+    const services = createBridgeServices(buildClickUpConfig(), {
+      stateStore: state,
+      openClawWorkboard: adapter as never,
+    });
+
+    await assert.rejects(async () => services.syncOpenClawCardToClickUp("task-sync"), /400/);
+
+    const result = await services.syncOpenClawCardToClickUp("task-sync");
+
+    assert.equal(result.synced, true);
+    assert.equal(adapter.showCalls.length, 2);
+    assert.equal(services.state.getJob("task-sync")?.openClawCardStatus, "done");
+    assert.equal(services.state.getJob("task-sync")?.outcome, "succeeded");
+    assert.ok(clickUpCalls.filter((call) => call.method === "PUT").length >= 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("stale cards are reconciled before bridge tries to create or dispatch anything new", async () => {

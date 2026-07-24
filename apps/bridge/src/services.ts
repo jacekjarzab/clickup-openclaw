@@ -1077,6 +1077,23 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function extractStatusCode(error: unknown): number | undefined {
+  const message = errorMessage(error);
+  const patterns = [/:\s*(\d{3})(?:\b|$)/, /\bstatus\s+(\d{3})\b/i, /\bHTTP\s+(\d{3})\b/i];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1] !== undefined) {
+      const parsed = Number(match[1]);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function isRetriableBridgeError(error: unknown): boolean {
   if (error !== null && typeof error === "object" && "retriable" in error) {
     const retriable = (error as { retriable?: unknown }).retriable;
@@ -1097,6 +1114,11 @@ function isRetriableBridgeError(error: unknown): boolean {
     return false;
   }
 
+  const status = extractStatusCode(error);
+  if (status !== undefined) {
+    return status === 408 || status === 425 || status === 429 || status >= 500;
+  }
+
   return (
     message.includes("gateway unavailable") ||
     message.includes("temporary") ||
@@ -1110,12 +1132,7 @@ function isRetriableBridgeError(error: unknown): boolean {
     message.includes("etimedout") ||
     message.includes("timed out") ||
     message.includes("timeout") ||
-    message.includes("rate limit") ||
-    message.includes("429") ||
-    message.includes("500") ||
-    message.includes("502") ||
-    message.includes("503") ||
-    message.includes("504")
+    message.includes("rate limit")
   );
 }
 
@@ -1336,6 +1353,8 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
             ? "completed"
             : current.bridgeState,
       updatedAt,
+      lastError: undefined,
+      outcome: undefined,
     });
 
     logger.info("recovered missing OpenClaw workboard mapping", {
@@ -1516,6 +1535,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       handedOffAt,
       updatedAt: handedOffAt,
       lastError: undefined,
+      outcome: undefined,
     });
 
     logger.info("job handed off to OpenClaw workboard", {
@@ -1533,8 +1553,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
   }
 
   async function dispatchOpenClawWorkboard(input?: { maxStarts?: number | undefined }) {
-    await reconcilePersistedState();
-
     let result: Awaited<ReturnType<typeof openClawWorkboard.dispatch>> | undefined;
     let lastError: unknown;
 
@@ -1608,6 +1626,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         dispatchedAt,
         updatedAt: dispatchedAt,
         lastError: undefined,
+        outcome: undefined,
       });
     }
 
@@ -1716,8 +1735,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
   }
 
   async function syncOpenClawCardToClickUp(taskId: string) {
-    const reconciled = await reconcileJob(taskId);
-
     return runJobOperation({
       taskId,
       stage: "sync",
@@ -1727,7 +1744,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
           throw new Error(`Task ${taskId} has not been handed off to OpenClaw`);
         }
 
-        const refreshed = reconciled ?? (await refreshOpenClawCard(taskId));
+        const refreshed = await refreshOpenClawCard(taskId);
         const next = state.getJob(taskId);
         if (refreshed.status === undefined || next === undefined) {
           return {
@@ -1850,15 +1867,17 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
           bridgeState: mapping.isTerminal ? "synced_back" : next.bridgeState,
           openClawCardStatus: refreshed.status,
           updatedAt,
+          lastError: undefined,
+          outcome: mapping.isTerminal
+            ? isBlockedWorkboardStatus(refreshed.status)
+              ? "blocked"
+              : isHumanReviewWorkboardStatus(refreshed.status)
+                ? "succeeded"
+                : next.outcome
+            : undefined,
           ...(mapping.isTerminal
             ? {
                 terminalAt: updatedAt,
-                outcome:
-                  isBlockedWorkboardStatus(refreshed.status)
-                    ? "blocked"
-                    : isHumanReviewWorkboardStatus(refreshed.status)
-                      ? "succeeded"
-                      : next.outcome,
               }
             : {}),
         });
