@@ -447,6 +447,165 @@ test("handoff stops retrying contract errors after the first failure", async () 
   assert.equal(job?.deadLetteredAt, undefined);
 });
 
+test("manual redispatch starts an eligible job without creating a duplicate card", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  state.upsertJob(
+    buildJobRecord("task-redispatch", {
+      bridgeState: "eligible",
+      workboardCardId: "card-redispatch",
+      openClawCardStatus: "ready",
+      handedOffAt: "2026-07-23T09:00:00.000Z",
+    }),
+  );
+
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  const result = await services.redispatchEligibleJob("task-redispatch");
+
+  assert.equal(result.dispatched, true);
+  assert.equal(adapter.createAttempts, 0);
+  assert.equal(adapter.dispatchAttempts, 1);
+  assert.equal(services.state.getJob("task-redispatch")?.bridgeState, "dispatched");
+});
+
+test("requeue clears terminal bridge state and returns the task to eligible", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  state.upsertJob(
+    buildJobRecord("task-requeue", {
+      bridgeState: "dead_lettered",
+      state: "failed",
+      workboardCardId: "card-requeue",
+      openClawCardStatus: "done",
+      outcome: "deadLettered",
+      retryCount: 3,
+      deadLetteredAt: "2026-07-23T10:30:00.000Z",
+      deadLetterReason: "temporary gateway unavailable",
+      terminalAt: "2026-07-23T10:30:00.000Z",
+      lastError: "temporary gateway unavailable",
+    }),
+  );
+
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  const result = await services.requeueJob("task-requeue");
+
+  assert.equal(result.requeued, true);
+  assert.equal(services.state.getJob("task-requeue")?.bridgeState, "eligible");
+  assert.equal(services.state.getJob("task-requeue")?.workboardCardId, undefined);
+  assert.equal(services.state.getJob("task-requeue")?.outcome, undefined);
+  assert.equal(services.state.getJob("task-requeue")?.deadLetteredAt, undefined);
+  assert.equal(services.state.getJob("task-requeue")?.retryCount, 0);
+});
+
+test("markJobBlocked writes blocked state and stops the watcher from picking it up", async () => {
+  const originalFetch = globalThis.fetch;
+  const clickUpCalls: Array<{ url: string; method: string; body?: string | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    clickUpCalls.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+
+    return {
+      ok: true,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const state = new InMemoryStateStore();
+    const adapter = new FakeOpenClawWorkboardAdapter();
+    state.upsertJob(
+      buildJobRecord("task-blocked", {
+        bridgeState: "dispatched",
+        state: "running",
+        workboardCardId: "card-blocked",
+      }),
+    );
+
+    const services = createBridgeServices(buildClickUpConfig(), {
+      stateStore: state,
+      openClawWorkboard: adapter as never,
+    });
+
+    const result = await services.markJobBlocked("task-blocked", "Waiting on staging credentials");
+    const watched = await services.watchOpenClawCards();
+
+    assert.equal(result.blocked, true);
+    assert.equal(services.state.getJob("task-blocked")?.bridgeState, "blocked");
+    assert.equal(services.state.getJob("task-blocked")?.outcome, "blocked");
+    assert.equal(services.state.getJob("task-blocked")?.blockedAt !== undefined, true);
+    assert.equal(adapter.showCalls.length, 0);
+    assert.equal(watched.watched, 0);
+    assert.equal(clickUpCalls.filter((call) => call.method === "PUT").length, 1);
+    assert.equal(clickUpCalls.filter((call) => call.method === "POST").length, 1);
+    assert.match(clickUpCalls.find((call) => call.method === "POST")?.body ?? "", /Waiting on staging credentials/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("forceHumanReviewJob writes a human-review handoff and removes the task from automation", async () => {
+  const originalFetch = globalThis.fetch;
+  const clickUpCalls: Array<{ url: string; method: string; body?: string | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    clickUpCalls.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+
+    return {
+      ok: true,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const state = new InMemoryStateStore();
+    const adapter = new FakeOpenClawWorkboardAdapter();
+    state.upsertJob(
+      buildJobRecord("task-review", {
+        bridgeState: "running",
+        state: "running",
+        workboardCardId: "card-review",
+        openClawCardStatus: "running",
+      }),
+    );
+
+    const services = createBridgeServices(buildClickUpConfig(), {
+      stateStore: state,
+      openClawWorkboard: adapter as never,
+    });
+
+    const result = await services.forceHumanReviewJob("task-review", "Needs another set of eyes");
+    const watched = await services.watchOpenClawCards();
+
+    assert.equal(result.forced, true);
+    assert.equal(services.state.getJob("task-review")?.bridgeState, "synced_back");
+    assert.equal(services.state.getJob("task-review")?.outcome, "succeeded");
+    assert.equal(services.state.getJob("task-review")?.openClawCardStatus, "review");
+    assert.equal(adapter.showCalls.length, 0);
+    assert.equal(watched.watched, 0);
+    assert.equal(clickUpCalls.filter((call) => call.method === "PUT").length, 1);
+    assert.equal(clickUpCalls.filter((call) => call.method === "POST").length, 1);
+    assert.match(clickUpCalls.find((call) => call.method === "POST")?.body ?? "", /human review/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("sync rereads the card on retry instead of reusing stale state", async () => {
   const originalFetch = globalThis.fetch;
   const clickUpCalls: Array<{ url: string; method: string; body?: string | undefined }> = [];

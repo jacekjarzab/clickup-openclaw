@@ -12,6 +12,10 @@ const openClawDispatchSchema = z.object({
   maxStarts: z.number().int().positive().optional(),
 });
 
+const operatorReasonSchema = z.object({
+  reason: z.string().min(1),
+});
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const services = createBridgeServices(config);
@@ -45,6 +49,12 @@ async function main(): Promise<void> {
     return reply.code(result.duplicate ? 200 : 201).send(result);
   });
 
+  app.post("/openclaw/:taskId/redispatch", async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.redispatchEligibleJob(taskId);
+    return reply.code(202).send(result);
+  });
+
   app.post("/openclaw/dispatch", async (request, reply) => {
     const input = openClawDispatchSchema.safeParse(request.body);
     if (!input.success) {
@@ -65,6 +75,34 @@ async function main(): Promise<void> {
     const { taskId } = request.params as { taskId: string };
     const result = await services.syncOpenClawCardToClickUp(taskId);
     return reply.send(result);
+  });
+
+  app.post("/openclaw/:taskId/requeue", async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const result = await services.requeueJob(taskId);
+    return reply.code(202).send(result);
+  });
+
+  app.post("/openclaw/:taskId/block", async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const input = operatorReasonSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const result = await services.markJobBlocked(taskId, input.data.reason);
+    return reply.code(202).send(result);
+  });
+
+  app.post("/openclaw/:taskId/review", async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const input = operatorReasonSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({ error: input.error.flatten() });
+    }
+
+    const result = await services.forceHumanReviewJob(taskId, input.data.reason);
+    return reply.code(202).send(result);
   });
 
   app.post("/openclaw/watch", async () => services.watchOpenClawCards());

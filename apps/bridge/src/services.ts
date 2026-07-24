@@ -1901,12 +1901,173 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     });
   }
 
+  async function writeOperatorClickUpState(
+    taskId: string,
+    input: {
+      status: "blocked" | "human-review";
+      reason?: string | undefined;
+    },
+  ): Promise<void> {
+    if (clickup === undefined) {
+      return;
+    }
+
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      return;
+    }
+
+    const links = resolveArtifactLinks(
+      current.task.projectKey ?? current.task.routingKey,
+      artifactLinks,
+      projectRoutingRules,
+    );
+    const updatedAt = nowIso();
+    const automationState = input.status === "blocked" ? "blocked" : "done";
+    const comment =
+      input.status === "blocked"
+        ? input.reason === undefined
+          ? "OpenClaw blocked this task and needs human input before continuing."
+          : `OpenClaw blocked this task.\nReason: ${input.reason}`
+        : input.reason === undefined
+          ? "OpenClaw returned this task for human review."
+          : `OpenClaw returned this task for human review.\nNote: ${input.reason}`;
+
+    await clickup.updateTaskMetadata(taskId, {
+      status: input.status === "blocked" ? "blocked" : "human-review",
+      customFields: buildTaskWriteBackFields(current.task, updatedAt, links, {
+        automation_state: automationState,
+        last_error: input.reason ?? "",
+        run_id: current.claim?.runId ?? "",
+        workboard_id: current.workboardCardId,
+      }),
+    });
+
+    await clickup.postTaskComment(taskId, comment);
+  }
+
+  async function redispatchEligibleJob(taskId: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (current.bridgeState !== "eligible" && current.bridgeState !== "card_created") {
+      throw new Error(`Task ${taskId} is not eligible for dispatch`);
+    }
+
+    return await autoHandoffAndDispatchEligibleJob(taskId);
+  }
+
+  async function requeueJob(taskId: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (
+      current.bridgeState === "eligible" ||
+      current.bridgeState === "card_created" ||
+      current.bridgeState === "dispatched" ||
+      current.bridgeState === "running"
+    ) {
+      throw new Error(`Task ${taskId} is already active`);
+    }
+
+    const updatedAt = nowIso();
+    state.mergeJob(taskId, {
+      state: "eligible",
+      bridgeState: "eligible",
+      claim: undefined,
+      handoffPayload: undefined,
+      workboardCardId: undefined,
+      openClawCardStatus: undefined,
+      clickupWriteBack: undefined,
+      handedOffAt: undefined,
+      dispatchedAt: undefined,
+      blockedAt: undefined,
+      terminalAt: undefined,
+      outcome: undefined,
+      deadLetteredAt: undefined,
+      deadLetterReason: undefined,
+      retryCount: 0,
+      lastError: undefined,
+      updatedAt,
+    });
+
+    logger.info("task requeued for OpenClaw", { taskId });
+
+    return {
+      taskId,
+      requeued: true,
+      updatedAt,
+    };
+  }
+
+  async function markJobBlocked(taskId: string, reason: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    const updatedAt = nowIso();
+    state.mergeJob(taskId, {
+      state: "blocked",
+      bridgeState: "blocked",
+      openClawCardStatus: "blocked",
+      blockedAt: updatedAt,
+      terminalAt: updatedAt,
+      outcome: "blocked",
+      lastError: reason,
+      updatedAt,
+    });
+
+    await writeOperatorClickUpState(taskId, { status: "blocked", reason });
+
+    logger.info("task marked blocked by operator", { taskId, reason });
+
+    return {
+      taskId,
+      blocked: true,
+      reason,
+      updatedAt,
+    };
+  }
+
+  async function forceHumanReviewJob(taskId: string, reason?: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    const updatedAt = nowIso();
+    state.mergeJob(taskId, {
+      bridgeState: "synced_back",
+      openClawCardStatus: "review",
+      terminalAt: updatedAt,
+      outcome: "succeeded",
+      lastError: undefined,
+      updatedAt,
+    });
+
+    await writeOperatorClickUpState(taskId, { status: "human-review", reason });
+
+    logger.info("task forced into human review", { taskId, reason: reason ?? null });
+
+    return {
+      taskId,
+      forced: true,
+      updatedAt,
+    };
+  }
+
   async function watchOpenClawCards() {
     const jobs = state.listJobs().filter(
       (job) =>
         job.workboardCardId !== undefined &&
         job.bridgeState !== "synced_back" &&
-        job.bridgeState !== "dead_lettered",
+        job.bridgeState !== "dead_lettered" &&
+        job.bridgeState !== "blocked",
     );
     const results: Array<Record<string, unknown>> = [];
 
@@ -2478,6 +2639,10 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     syncList,
     buildBridgeToWorkboardCard,
     handoffJobToOpenClaw,
+    redispatchEligibleJob,
+    requeueJob,
+    markJobBlocked,
+    forceHumanReviewJob,
     dispatchOpenClawWorkboard,
     refreshOpenClawCard,
     syncOpenClawCardToClickUp,
