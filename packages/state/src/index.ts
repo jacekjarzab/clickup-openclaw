@@ -13,6 +13,24 @@ import type {
   WorkboardState,
 } from "@clickup-openclaw/shared";
 
+export type ClickUpWriteBackState = {
+  running?: {
+    commentKey?: string | undefined;
+    commentAttemptedAt?: string | undefined;
+    statusKey?: string | undefined;
+    statusAttemptedAt?: string | undefined;
+    lastSyncedAt?: string | undefined;
+  } | undefined;
+  terminal?: {
+    commentKey?: string | undefined;
+    commentAttemptedAt?: string | undefined;
+    statusKey?: string | undefined;
+    statusAttemptedAt?: string | undefined;
+    lastSyncedStatus?: OpenClawWorkboardCardStatus | undefined;
+    lastSyncedAt?: string | undefined;
+  } | undefined;
+};
+
 export type JobRecord = {
   task: ClickUpTask;
   state: WorkboardState;
@@ -22,6 +40,7 @@ export type JobRecord = {
   workboardCardId?: string | undefined;
   openClawCardStatus?: OpenClawWorkboardCardStatus | undefined;
   terminalContext?: OpenClawTerminalContext | undefined;
+  clickupWriteBack?: ClickUpWriteBackState | undefined;
   handedOffAt?: string | undefined;
   dispatchedAt?: string | undefined;
   idempotencyKey: string | undefined;
@@ -52,6 +71,7 @@ export type JobPatch = {
   workboardCardId?: string | undefined;
   openClawCardStatus?: OpenClawWorkboardCardStatus | undefined;
   terminalContext?: OpenClawTerminalContext | undefined;
+  clickupWriteBack?: ClickUpWriteBackState | undefined;
   handedOffAt?: string | undefined;
   dispatchedAt?: string | undefined;
   idempotencyKey?: string | undefined;
@@ -90,6 +110,26 @@ function cloneJob(job: JobRecord): JobRecord {
             comments: job.terminalContext.comments?.slice(),
           },
         }),
+    ...(job.clickupWriteBack === undefined
+      ? {}
+      : {
+          clickupWriteBack: {
+            ...(job.clickupWriteBack.running === undefined
+              ? {}
+              : {
+                  running: {
+                    ...job.clickupWriteBack.running,
+                  },
+                }),
+            ...(job.clickupWriteBack.terminal === undefined
+              ? {}
+              : {
+                  terminal: {
+                    ...job.clickupWriteBack.terminal,
+                  },
+                }),
+          },
+        }),
     events: job.events.slice(),
   };
 }
@@ -118,6 +158,7 @@ export class InMemoryStateStore {
     if ("workboardCardId" in patch) next.workboardCardId = patch.workboardCardId;
     if ("openClawCardStatus" in patch) next.openClawCardStatus = patch.openClawCardStatus;
     if ("terminalContext" in patch) next.terminalContext = patch.terminalContext;
+    if ("clickupWriteBack" in patch) next.clickupWriteBack = patch.clickupWriteBack;
     if ("handedOffAt" in patch) next.handedOffAt = patch.handedOffAt;
     if ("dispatchedAt" in patch) next.dispatchedAt = patch.dispatchedAt;
     if ("idempotencyKey" in patch) next.idempotencyKey = patch.idempotencyKey;

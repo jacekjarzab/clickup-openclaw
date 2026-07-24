@@ -79,7 +79,7 @@ test("OpenClawWorkboardAdapter showCard extracts terminal context from payloads"
           proof: {
             note: "No execution proof was produced.",
           },
-          artifacts: ["https://example.com/log"],
+          artifacts: [{ title: "Debug log", url: "https://example.com/log" }],
           comments: ["Waiting on a dependency."],
           blocker_reason: "Dependency not available.",
         }),
@@ -95,5 +95,5 @@ test("OpenClawWorkboardAdapter showCard extracts terminal context from payloads"
   assert.equal(card.terminalContext?.summary, "Workboard reported a blocker.");
   assert.deepEqual(card.terminalContext?.comments, ["Waiting on a dependency."]);
   assert.equal(card.terminalContext?.blockerContext, "Dependency not available.");
-  assert.deepEqual(card.terminalContext?.artifacts, ["https://example.com/log"]);
+  assert.deepEqual(card.terminalContext?.artifacts, [{ title: "Debug log", url: "https://example.com/log" }]);
 });

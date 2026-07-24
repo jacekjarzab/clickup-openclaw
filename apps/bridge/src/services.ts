@@ -12,7 +12,7 @@ import {
   type OpenClawWorkboardCardStatus,
   type PriorityBucket,
 } from "@clickup-openclaw/shared";
-import { FileBackedStateStore, InMemoryStateStore } from "@clickup-openclaw/state";
+import { FileBackedStateStore, InMemoryStateStore, type JobRecord } from "@clickup-openclaw/state";
 
 import type { BridgeConfig } from "./config.js";
 import { OpenClawWorkboardAdapter } from "./openclaw-workboard.js";
@@ -31,6 +31,8 @@ type WorkTypeTemplate = {
 };
 
 type WorkflowTemplate = WorkTypeTemplate;
+
+type ClickUpWriteBackState = NonNullable<JobRecord["clickupWriteBack"]>;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -698,28 +700,47 @@ function readTerminalArtifactList(value: unknown): Array<string | Record<string,
     return [];
   }
 
-  return value.flatMap((item) => {
+  const artifacts: Array<string | Record<string, unknown>> = [];
+
+  for (const item of value) {
     if (typeof item === "string") {
       const trimmed = item.trim();
-      return trimmed.length > 0 ? [trimmed] : [];
+      if (trimmed.length > 0) {
+        artifacts.push(trimmed);
+      }
+      continue;
     }
 
     if (item !== null && typeof item === "object") {
       const record = item as Record<string, unknown>;
-      const candidate =
+      const url =
         readString(record.url) ??
         readString(record.href) ??
         readString(record.link) ??
         readString(record.artifactUrl) ??
-        readString(record.artifact_url) ??
-        readString(record.title) ??
-        readString(record.name);
+        readString(record.artifact_url);
+      const title = readString(record.title) ?? readString(record.name);
 
-      return [candidate ?? record];
+      if (title !== undefined && url !== undefined) {
+        artifacts.push({ title, url });
+        continue;
+      }
+
+      if (url !== undefined) {
+        artifacts.push(url);
+        continue;
+      }
+
+      if (title !== undefined) {
+        artifacts.push(title);
+        continue;
+      }
+
+      artifacts.push(record);
     }
+  }
 
-    return [];
-  });
+  return artifacts;
 }
 
 function readTerminalCommentList(value: unknown): string[] {
@@ -745,6 +766,13 @@ function renderTerminalContextValue(value: unknown): string | undefined {
 
   if (value !== null && typeof value === "object") {
     const record = value as Record<string, unknown>;
+    const title = readString(record.title) ?? readString(record.name) ?? readString(record.label);
+    const url =
+      readString(record.url) ??
+      readString(record.href) ??
+      readString(record.link) ??
+      readString(record.artifactUrl) ??
+      readString(record.artifact_url);
     const candidate =
       readString(record.url) ??
       readString(record.href) ??
@@ -756,6 +784,19 @@ function renderTerminalContextValue(value: unknown): string | undefined {
       readString(record.text) ??
       readString(record.title) ??
       readString(record.name);
+
+    if (title !== undefined && url !== undefined) {
+      return `${title} (${url})`;
+    }
+
+    if (url !== undefined) {
+      return url;
+    }
+
+    if (title !== undefined) {
+      return title;
+    }
+
     return candidate ?? JSON.stringify(record);
   }
 
@@ -855,6 +896,38 @@ function buildOpenClawTerminalSummary(
   );
 }
 
+function buildOpenClawTerminalFollowUp(status: OpenClawWorkboardCardStatus): string | undefined {
+  switch (status) {
+    case "review":
+    case "done":
+      return "Next step: review the result in ClickUp and close the task if it looks right.";
+    case "blocked":
+      return "Next step: resolve the blocker, then rerun OpenClaw.";
+    default:
+      return undefined;
+  }
+}
+
+function appendTerminalContextSections(
+  lines: string[],
+  terminalContext: OpenClawTerminalContext | undefined,
+): void {
+  const proof = renderTerminalContextValue(terminalContext?.proof);
+  if (proof !== undefined) {
+    lines.push("", `Proof: ${proof}`);
+  }
+
+  const artifactLines = renderTerminalContextSection("Artifacts", terminalContext?.artifacts);
+  if (artifactLines.length > 0) {
+    lines.push("", ...artifactLines);
+  }
+
+  const commentLines = renderTerminalContextSection("Comments", terminalContext?.comments?.map((comment) => comment));
+  if (commentLines.length > 0) {
+    lines.push("", ...commentLines);
+  }
+}
+
 export function buildOpenClawStatusComment(
   status: OpenClawWorkboardCardStatus,
   terminalContext: OpenClawTerminalContext | undefined,
@@ -865,40 +938,29 @@ export function buildOpenClawStatusComment(
     case "review":
     case "done": {
       const lines = [buildOpenClawTerminalSummary(status, terminalContext)];
+      appendTerminalContextSections(lines, terminalContext);
 
-      const proof = renderTerminalContextValue(terminalContext?.proof);
-      if (proof !== undefined) {
-        lines.push("", `Proof: ${proof}`);
-      }
-
-      const artifactLines = renderTerminalContextSection("Artifacts", terminalContext?.artifacts);
-      if (artifactLines.length > 0) {
-        lines.push("", ...artifactLines);
-      }
-
-      const commentLines = renderTerminalContextSection("Comments", terminalContext?.comments?.map((comment) => comment));
-      if (commentLines.length > 0) {
-        lines.push("", ...commentLines);
+      const followUp = buildOpenClawTerminalFollowUp(status);
+      if (followUp !== undefined) {
+        lines.push("", followUp);
       }
 
       return lines.join("\n");
     }
     case "blocked": {
       const lines = [buildOpenClawTerminalSummary(status, terminalContext)];
-
-      const proof = renderTerminalContextValue(terminalContext?.proof);
-      if (proof !== undefined) {
-        lines.push("", `Proof: ${proof}`);
+      if (
+        terminalContext?.summary !== undefined &&
+        terminalContext.summary !== terminalContext.blockerContext
+      ) {
+        lines.push("", `Summary: ${terminalContext.summary}`);
       }
 
-      const artifactLines = renderTerminalContextSection("Artifacts", terminalContext?.artifacts);
-      if (artifactLines.length > 0) {
-        lines.push("", ...artifactLines);
-      }
+      appendTerminalContextSections(lines, terminalContext);
 
-      const commentLines = renderTerminalContextSection("Comments", terminalContext?.comments?.map((comment) => comment));
-      if (commentLines.length > 0) {
-        lines.push("", ...commentLines);
+      const followUp = buildOpenClawTerminalFollowUp(status);
+      if (followUp !== undefined) {
+        lines.push("", followUp);
       }
 
       return lines.join("\n");
@@ -906,6 +968,25 @@ export function buildOpenClawStatusComment(
     default:
       return undefined;
   }
+}
+
+function updateClickUpWriteBack(
+  taskId: string,
+  state: InMemoryStateStore | FileBackedStateStore,
+  updater: (current: ClickUpWriteBackState | undefined) => ClickUpWriteBackState | undefined,
+): ClickUpWriteBackState | undefined {
+  const job = state.getJob(taskId);
+  if (job === undefined) {
+    return undefined;
+  }
+
+  const next = updater(job.clickupWriteBack);
+  if (next === undefined) {
+    return undefined;
+  }
+
+  state.mergeJob(taskId, { clickupWriteBack: next });
+  return next;
 }
 
 function resolveArtifactLinks(
@@ -1318,21 +1399,94 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       readNestedString(refreshed.raw, ["execution", "runId"]) ??
       "";
     const comment = buildOpenClawStatusComment(refreshed.status, terminalContext);
+    const currentWriteBack = next.clickupWriteBack;
+    const writeBackTimestamp = updatedAt;
+    const terminalAlreadySynced = currentWriteBack?.terminal?.lastSyncedStatus === refreshed.status;
+    const mergeRunningWriteBack = (patch: Partial<NonNullable<ClickUpWriteBackState["running"]>>) =>
+      updateClickUpWriteBack(taskId, state, (existing) => ({
+        ...(existing ?? {}),
+        running: {
+          ...((existing?.running ?? {}) as NonNullable<ClickUpWriteBackState["running"]>),
+          ...patch,
+        },
+      }));
+    const mergeTerminalWriteBack = (patch: Partial<NonNullable<ClickUpWriteBackState["terminal"]>>) =>
+      updateClickUpWriteBack(taskId, state, (existing) => ({
+        ...(existing ?? {}),
+        terminal: {
+          ...((existing?.terminal ?? {}) as NonNullable<ClickUpWriteBackState["terminal"]>),
+          ...patch,
+        },
+      }));
 
     if (clickup !== undefined) {
-      if (comment !== undefined && mapping.syncComment) {
-        await clickup.postTaskComment(taskId, comment);
-      }
+      if (refreshed.status === "running") {
+        const runningWriteBack = currentWriteBack?.running;
+        const shouldSyncStatus = runningWriteBack?.statusKey !== mapping.clickupStatus;
 
-      await clickup.updateTaskMetadata(taskId, {
-        status: mapping.clickupStatus,
-        customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
-          automation_state: mapping.automationState,
-          last_error: refreshed.status === "blocked" ? buildOpenClawTerminalSummary("blocked", terminalContext) : "",
-          run_id: runId,
-          workboard_id: current.workboardCardId,
-        }),
-      });
+        if (shouldSyncStatus) {
+          mergeRunningWriteBack({
+            statusKey: mapping.clickupStatus,
+            statusAttemptedAt: writeBackTimestamp,
+          });
+
+          await clickup.updateTaskMetadata(taskId, {
+            status: mapping.clickupStatus,
+            customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
+              automation_state: mapping.automationState,
+              last_error: "",
+              run_id: runId,
+              workboard_id: current.workboardCardId,
+            }),
+          });
+
+          mergeRunningWriteBack({
+            lastSyncedAt: writeBackTimestamp,
+          });
+        }
+
+        const latestRunningWriteBack = state.getJob(taskId)?.clickupWriteBack?.running;
+        if (comment !== undefined && latestRunningWriteBack?.commentKey !== comment) {
+          mergeRunningWriteBack({
+            commentKey: comment,
+            commentAttemptedAt: writeBackTimestamp,
+          });
+
+          await clickup.postTaskComment(taskId, comment);
+        }
+      } else if (mapping.isTerminal) {
+        const terminalWriteBack = currentWriteBack?.terminal;
+        const shouldSyncStatus = terminalWriteBack?.statusKey !== refreshed.status;
+
+        if (shouldSyncStatus) {
+          mergeTerminalWriteBack({
+            statusKey: refreshed.status,
+            statusAttemptedAt: writeBackTimestamp,
+            lastSyncedStatus: refreshed.status,
+            lastSyncedAt: writeBackTimestamp,
+          });
+
+          await clickup.updateTaskMetadata(taskId, {
+            status: mapping.clickupStatus,
+            customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
+              automation_state: mapping.automationState,
+              last_error: refreshed.status === "blocked" ? buildOpenClawTerminalSummary("blocked", terminalContext) : "",
+              run_id: runId,
+              workboard_id: current.workboardCardId,
+            }),
+          });
+        }
+
+        const latestTerminalWriteBack = state.getJob(taskId)?.clickupWriteBack?.terminal;
+        if (comment !== undefined && !terminalAlreadySynced && latestTerminalWriteBack?.commentKey !== comment) {
+          mergeTerminalWriteBack({
+            commentKey: comment,
+            commentAttemptedAt: writeBackTimestamp,
+          });
+
+          await clickup.postTaskComment(taskId, comment);
+        }
+      }
     }
 
     state.mergeJob(taskId, {

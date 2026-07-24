@@ -233,8 +233,8 @@ test("extractOpenClawTerminalContext preserves terminal summary, proof, artifact
   assert.deepEqual(context.proof, raw.execution.proof);
   assert.deepEqual(context.artifacts, [
     "https://example.com/trace",
-    "https://example.com/report",
-    "https://example.com/artifact",
+    { title: "Run report", url: "https://example.com/report" },
+    { title: "Preview build", url: "https://example.com/artifact" },
   ]);
   assert.deepEqual(context.comments, ["Execution note", "Left a follow-up note.", "Single comment"]);
   assert.equal(context.blockerContext, "Needs review from a human.");
@@ -246,7 +246,7 @@ test("buildOpenClawStatusComment includes terminal context for review and blocke
     proof: {
       note: "Checked locally and in CI.",
     },
-    artifacts: ["https://example.com/build"],
+    artifacts: [{ title: "Preview build", url: "https://example.com/build" }],
     comments: ["Ready for human review."],
   });
 
@@ -254,9 +254,10 @@ test("buildOpenClawStatusComment includes terminal context for review and blocke
   assert.match(reviewComment, /Delivered the requested change\./);
   assert.match(reviewComment, /Proof: .*Checked locally and in CI\./);
   assert.match(reviewComment, /Artifacts:/);
-  assert.match(reviewComment, /https:\/\/example.com\/build/);
+  assert.match(reviewComment, /Preview build \(https:\/\/example.com\/build\)/);
   assert.match(reviewComment, /Comments:/);
   assert.match(reviewComment, /Ready for human review\./);
+  assert.match(reviewComment, /Next step: review the result in ClickUp and close the task if it looks right\./);
 
   const blockedComment = buildOpenClawStatusComment("blocked", {
     blockerContext: "Waiting on access to the staging environment.",
@@ -266,6 +267,117 @@ test("buildOpenClawStatusComment includes terminal context for review and blocke
   assert.ok(blockedComment);
   assert.match(blockedComment, /Waiting on access to the staging environment\./);
   assert.match(blockedComment, /Proof: No execution output was available\./);
+  assert.match(blockedComment, /Next step: resolve the blocker, then rerun OpenClaw\./);
+
+  const blockedWithSeparateSummary = buildOpenClawStatusComment("blocked", {
+    summary: "The implementation is ready, but the deployment target is unavailable.",
+    blockerContext: "Waiting on access to the staging environment.",
+  });
+
+  assert.ok(blockedWithSeparateSummary);
+  assert.match(blockedWithSeparateSummary, /Waiting on access to the staging environment\./);
+  assert.match(blockedWithSeparateSummary, /Summary: The implementation is ready, but the deployment target is unavailable\./);
+});
+
+test("buildOpenClawStatusComment falls back to concise sparse terminal summaries", () => {
+  const reviewComment = buildOpenClawStatusComment("review", undefined);
+  const blockedComment = buildOpenClawStatusComment("blocked", undefined);
+
+  assert.ok(reviewComment);
+  assert.match(reviewComment, /OpenClaw finished this task and returned it for human review\./);
+  assert.match(reviewComment, /Next step: review the result in ClickUp and close the task if it looks right\./);
+  assert.ok(blockedComment);
+  assert.match(blockedComment, /OpenClaw blocked this task and needs human input before continuing\./);
+  assert.match(blockedComment, /Next step: resolve the blocker, then rerun OpenClaw\./);
+});
+
+test("watchOpenClawCards posts the running start comment once", async () => {
+  const originalFetch = globalThis.fetch;
+  const clickUpCalls: Array<{ url: string; method: string; body?: string | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    clickUpCalls.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+
+    return {
+      ok: true,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const state = new InMemoryStateStore();
+    const adapter = new FakeOpenClawWorkboardAdapter();
+    adapter.showResponses.set("card-running", {
+      status: "running",
+      raw: {
+        id: "card-running",
+        status: "running",
+        summary: "OpenClaw has started the task.",
+      },
+    });
+
+    state.upsertJob({
+      task: {
+        id: "task-running",
+        name: "Running task",
+        status: "ready for openclaw",
+        tags: [],
+      },
+      state: "succeeded",
+      bridgeState: "dispatched",
+      claim: undefined,
+      handoffPayload: undefined,
+      workboardCardId: "card-running",
+      openClawCardStatus: undefined,
+      clickupWriteBack: undefined,
+      handedOffAt: "2026-07-23T10:00:00.000Z",
+      dispatchedAt: "2026-07-23T10:05:00.000Z",
+      idempotencyKey: "task-running::taskUpdated::ready for openclaw::2026-07-23T10:00:00.000Z",
+      workType: undefined,
+      workflowTemplate: undefined,
+      decompositionPlan: undefined,
+      triageReason: undefined,
+      template: undefined,
+      retryCount: 0,
+      lastError: undefined,
+      lastEventAt: "2026-07-23T10:00:00.000Z",
+      updatedAt: "2026-07-23T10:05:00.000Z",
+      events: [],
+      blockedAt: undefined,
+      claimedAt: undefined,
+      terminalAt: undefined,
+      outcome: undefined,
+      deadLetteredAt: undefined,
+      deadLetterReason: undefined,
+    });
+
+    const services = createBridgeServices(buildClickUpConfig(), {
+      stateStore: state,
+      openClawWorkboard: adapter as never,
+    });
+
+    const first = await services.watchOpenClawCards();
+    const firstCallCount = clickUpCalls.length;
+
+    assert.equal(first.watched, 1);
+    assert.equal(adapter.showCalls.length, 1);
+    assert.equal(clickUpCalls.filter((call) => call.method === "PUT").length, 1);
+    assert.equal(clickUpCalls.filter((call) => call.method === "POST").length, 1);
+    assert.equal(services.state.getJob("task-running")?.clickupWriteBack?.running?.statusKey, "in progress");
+    assert.equal(services.state.getJob("task-running")?.clickupWriteBack?.running?.commentKey, "OpenClaw started work on this task.");
+
+    const second = await services.watchOpenClawCards();
+
+    assert.equal(second.watched, 1);
+    assert.equal(adapter.showCalls.length, 2);
+    assert.equal(clickUpCalls.length, firstCallCount);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("watchOpenClawCards rereads stale terminal cards before syncing them back", async () => {
@@ -355,6 +467,196 @@ test("watchOpenClawCards rereads stale terminal cards before syncing them back",
       clickUpCalls.some((call) => call.body?.includes("Completed the stale card retry path.")),
       true,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("watchOpenClawCards suppresses duplicate terminal write-backs after a partial failure", async () => {
+  const originalFetch = globalThis.fetch;
+  const clickUpCalls: Array<{ url: string; method: string; body?: string | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    clickUpCalls.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+
+    if (typeof url === "string" && url.includes("/comment")) {
+      throw new Error("comment write failed");
+    }
+
+    return {
+      ok: true,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const state = new InMemoryStateStore();
+    const adapter = new FakeOpenClawWorkboardAdapter();
+    adapter.showResponses.set("card-terminal", {
+      status: "done",
+      raw: {
+        id: "card-terminal",
+        status: "done",
+        summary: "Completed the stale card retry path.",
+        proof: {
+          note: "The bridge reread the card before syncing.",
+        },
+        artifacts: [{ title: "Final build", url: "https://example.com/final" }],
+        comments: ["Terminal comment"],
+      },
+    });
+
+    state.upsertJob({
+      task: {
+        id: "task-terminal",
+        name: "Terminal task",
+        status: "ready for openclaw",
+        tags: [],
+      },
+      state: "succeeded",
+      bridgeState: "dispatched",
+      claim: undefined,
+      handoffPayload: undefined,
+      workboardCardId: "card-terminal",
+      openClawCardStatus: "blocked",
+      clickupWriteBack: undefined,
+      handedOffAt: "2026-07-23T10:00:00.000Z",
+      dispatchedAt: "2026-07-23T10:05:00.000Z",
+      idempotencyKey: "task-terminal::taskUpdated::ready for openclaw::2026-07-23T10:00:00.000Z",
+      workType: undefined,
+      workflowTemplate: undefined,
+      decompositionPlan: undefined,
+      triageReason: undefined,
+      template: undefined,
+      retryCount: 0,
+      lastError: undefined,
+      lastEventAt: "2026-07-23T10:00:00.000Z",
+      updatedAt: "2026-07-23T10:05:00.000Z",
+      events: [],
+      blockedAt: undefined,
+      claimedAt: undefined,
+      terminalAt: undefined,
+      outcome: undefined,
+      deadLetteredAt: undefined,
+      deadLetterReason: undefined,
+    });
+
+    const services = createBridgeServices(buildClickUpConfig(), {
+      stateStore: state,
+      openClawWorkboard: adapter as never,
+    });
+
+    const first = await services.watchOpenClawCards();
+    const firstCallCount = clickUpCalls.length;
+
+    assert.equal(first.watched, 1);
+    assert.equal(adapter.showCalls.length, 1);
+    assert.equal(clickUpCalls.filter((call) => call.method === "PUT").length, 1);
+    assert.ok(clickUpCalls.filter((call) => call.method === "POST").length >= 1);
+    assert.equal(services.state.getJob("task-terminal")?.clickupWriteBack?.terminal?.statusKey, "done");
+
+    const second = await services.watchOpenClawCards();
+
+    assert.equal(second.watched, 1);
+    assert.equal(adapter.showCalls.length, 2);
+    assert.equal(clickUpCalls.length, firstCallCount);
+    assert.equal(services.state.getJob("task-terminal")?.bridgeState, "synced_back");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("watchOpenClawCards keeps the last synced terminal status from reposting the same terminal comment", async () => {
+  const originalFetch = globalThis.fetch;
+  const clickUpCalls: Array<{ url: string; method: string; body?: string | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    clickUpCalls.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+
+    return {
+      ok: true,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const state = new InMemoryStateStore();
+    const adapter = new FakeOpenClawWorkboardAdapter();
+    adapter.showResponses.set("card-terminal", {
+      status: "done",
+      raw: {
+        id: "card-terminal",
+        status: "done",
+        summary: "Completed the stale card retry path.",
+        proof: {
+          note: "The bridge reread the card before syncing.",
+        },
+        artifacts: [{ title: "Final build", url: "https://example.com/final" }],
+        comments: ["Terminal comment"],
+      },
+    });
+
+    state.upsertJob({
+      task: {
+        id: "task-terminal",
+        name: "Terminal task",
+        status: "ready for openclaw",
+        tags: [],
+      },
+      state: "succeeded",
+      bridgeState: "dispatched",
+      claim: undefined,
+      handoffPayload: undefined,
+      workboardCardId: "card-terminal",
+      openClawCardStatus: "blocked",
+      clickupWriteBack: {
+        terminal: {
+          statusKey: "done",
+          lastSyncedStatus: "done",
+          lastSyncedAt: "2026-07-23T11:00:00.000Z",
+        },
+      },
+      handedOffAt: "2026-07-23T10:00:00.000Z",
+      dispatchedAt: "2026-07-23T10:05:00.000Z",
+      idempotencyKey: "task-terminal::taskUpdated::ready for openclaw::2026-07-23T10:00:00.000Z",
+      workType: undefined,
+      workflowTemplate: undefined,
+      decompositionPlan: undefined,
+      triageReason: undefined,
+      template: undefined,
+      retryCount: 0,
+      lastError: undefined,
+      lastEventAt: "2026-07-23T10:00:00.000Z",
+      updatedAt: "2026-07-23T10:05:00.000Z",
+      events: [],
+      blockedAt: undefined,
+      claimedAt: undefined,
+      terminalAt: undefined,
+      outcome: undefined,
+      deadLetteredAt: undefined,
+      deadLetterReason: undefined,
+    });
+
+    const services = createBridgeServices(buildClickUpConfig(), {
+      stateStore: state,
+      openClawWorkboard: adapter as never,
+    });
+
+    const result = await services.watchOpenClawCards();
+
+    assert.equal(result.watched, 1);
+    assert.equal(adapter.showCalls.length, 1);
+    assert.equal(clickUpCalls.length, 0);
+    assert.equal(services.state.getJob("task-terminal")?.bridgeState, "synced_back");
+    assert.equal(services.state.getJob("task-terminal")?.clickupWriteBack?.terminal?.lastSyncedStatus, "done");
   } finally {
     globalThis.fetch = originalFetch;
   }

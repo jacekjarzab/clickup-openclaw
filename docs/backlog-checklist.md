@@ -63,9 +63,20 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Post a start comment to the ClickUp task when Bridge observes Workboard execution start
 - [x] Move the task to ClickUp `in progress` when Workboard enters `running`
 - [x] Move the task to ClickUp `human-review` when OpenClaw finishes successfully
-- [ ] Post completion summaries with proof and useful artifact links
-- [ ] Post blocked or failure summaries with concise next-step context
+- [x] Post completion summaries with proof and useful artifact links
+  - Include the terminal summary from OpenClaw
+  - Include proof text when available
+  - Include artifact links or artifact titles when available
+  - Keep the comment readable when the terminal payload is sparse
+- [x] Post blocked or failure summaries with concise next-step context
+  - Include a human-readable blocker reason
+  - Include the last useful execution summary or proof note when present
+  - Include a clear next step for the human
+  - Fall back to a short generic blocked message when the payload is sparse
 - [x] Prevent duplicate comments or duplicate terminal updates
+  - Record the last synced terminal status on the Bridge job
+  - Reuse the last successful terminal sync when a restart happens mid-write
+  - Ensure a retry does not repost the same terminal comment after a partial failure
 
 ## Phase 5: Status Mapping and Contract Hardening
 

@@ -121,28 +121,47 @@ function readTerminalArtifactList(value: unknown): Array<string | Record<string,
     return [];
   }
 
-  return value.flatMap((item) => {
+  const artifacts: Array<string | Record<string, unknown>> = [];
+
+  for (const item of value) {
     if (typeof item === "string") {
       const trimmed = item.trim();
-      return trimmed.length > 0 ? [trimmed] : [];
+      if (trimmed.length > 0) {
+        artifacts.push(trimmed);
+      }
+      continue;
     }
 
     if (item !== null && typeof item === "object") {
       const record = item as Record<string, unknown>;
-      const candidate =
+      const url =
         readNestedString(record, ["url"]) ??
         readNestedString(record, ["href"]) ??
         readNestedString(record, ["link"]) ??
         readNestedString(record, ["artifactUrl"]) ??
-        readNestedString(record, ["artifact_url"]) ??
-        readNestedString(record, ["title"]) ??
-        readNestedString(record, ["name"]);
+        readNestedString(record, ["artifact_url"]);
+      const title = readNestedString(record, ["title"]) ?? readNestedString(record, ["name"]);
 
-      return [candidate ?? record];
+      if (title !== undefined && url !== undefined) {
+        artifacts.push({ title, url });
+        continue;
+      }
+
+      if (url !== undefined) {
+        artifacts.push(url);
+        continue;
+      }
+
+      if (title !== undefined) {
+        artifacts.push(title);
+        continue;
+      }
+
+      artifacts.push(record);
     }
+  }
 
-    return [];
-  });
+  return artifacts;
 }
 
 function readTerminalCommentList(value: unknown): string[] {
