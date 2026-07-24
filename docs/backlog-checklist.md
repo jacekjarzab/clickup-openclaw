@@ -135,11 +135,29 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 7: Operator Controls
 
-- [ ] Add manual re-dispatch for eligible cards
+- [x] Add manual re-dispatch for eligible cards
+  - Add an operator endpoint or CLI command that dispatches a single eligible `card_created`/`eligible` job without waiting for the normal watcher loop
+  - Reject re-dispatch when the job is already `dispatched`, `running`, `synced_back`, or `dead_lettered`
+  - Reuse the existing workboard card mapping and idempotency key instead of creating a new card
+  - Add tests for successful re-dispatch, duplicate prevention, and invalid-state rejection
 - [x] Add a force-sync path from Workboard back to ClickUp
-- [ ] Add a requeue path for tasks returned from review or failure
-- [ ] Add a mark-blocked path with reason text
-- [ ] Add a force-human-review path when OpenClaw output should be inspected without further automation
+  - Implemented via `POST /openclaw/:taskId/sync`
+  - Keep the path able to reread the current card state and push comments/status back to ClickUp
+- [x] Add a requeue path for tasks returned from review or failure
+  - Allow an operator to move a `synced_back`, `blocked`, `failed`, or `dead_lettered` job back to the eligible queue
+  - Clear terminal state, stale retry metadata, and dead-letter markers while preserving the historical event trail
+  - Prevent requeue if the task is already active or missing required ClickUp/OpenClaw identifiers
+  - Add tests for requeue from review, requeue from failure, and duplicate-queue prevention
+- [x] Add a mark-blocked path with reason text
+  - Accept a human reason string and record it on the job
+  - Write the blocked outcome back to ClickUp with a clear operator-facing note
+  - Stop automatic dispatch for the job until an operator explicitly requeues it
+  - Add tests for blocked write-back, blocked comment content, and requeue-after-block behavior
+- [x] Add a force-human-review path when OpenClaw output should be inspected without further automation
+  - Move a job into `synced_back` / human-review flow without marking it as blocked
+  - Preserve the latest OpenClaw summary, proof, and artifact links in ClickUp
+  - Ensure the job stays out of the automatic dispatch queue after the forced review handoff
+  - Add tests for forced review write-back and queue exclusion
 
 ## Phase 8: Quality and Scale
 
