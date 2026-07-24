@@ -1906,6 +1906,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     input: {
       status: "blocked" | "human-review";
       reason?: string | undefined;
+      updatedAt: string;
     },
   ): Promise<void> {
     if (clickup === undefined) {
@@ -1922,7 +1923,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       artifactLinks,
       projectRoutingRules,
     );
-    const updatedAt = nowIso();
     const automationState = input.status === "blocked" ? "blocked" : "done";
     const comment =
       input.status === "blocked"
@@ -1935,7 +1935,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
 
     await clickup.updateTaskMetadata(taskId, {
       status: input.status === "blocked" ? "blocked" : "human-review",
-      customFields: buildTaskWriteBackFields(current.task, updatedAt, links, {
+      customFields: buildTaskWriteBackFields(current.task, input.updatedAt, links, {
         automation_state: automationState,
         last_error: input.reason ?? "",
         run_id: current.claim?.runId ?? "",
@@ -2010,6 +2010,15 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       throw new Error(`Unknown task ${taskId}`);
     }
 
+    if (
+      current.bridgeState !== "eligible" &&
+      current.bridgeState !== "card_created" &&
+      current.bridgeState !== "dispatched" &&
+      current.bridgeState !== "running"
+    ) {
+      throw new Error(`Task ${taskId} is not active`);
+    }
+
     const updatedAt = nowIso();
     state.mergeJob(taskId, {
       state: "blocked",
@@ -2022,7 +2031,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       updatedAt,
     });
 
-    await writeOperatorClickUpState(taskId, { status: "blocked", reason });
+    await writeOperatorClickUpState(taskId, { status: "blocked", reason, updatedAt });
 
     logger.info("task marked blocked by operator", { taskId, reason });
 
@@ -2040,6 +2049,14 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       throw new Error(`Unknown task ${taskId}`);
     }
 
+    if (
+      current.bridgeState !== "dispatched" &&
+      current.bridgeState !== "running" &&
+      current.bridgeState !== "blocked"
+    ) {
+      throw new Error(`Task ${taskId} is not ready for human review`);
+    }
+
     const updatedAt = nowIso();
     state.mergeJob(taskId, {
       bridgeState: "synced_back",
@@ -2050,7 +2067,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       updatedAt,
     });
 
-    await writeOperatorClickUpState(taskId, { status: "human-review", reason });
+    await writeOperatorClickUpState(taskId, { status: "human-review", reason, updatedAt });
 
     logger.info("task forced into human review", { taskId, reason: reason ?? null });
 
