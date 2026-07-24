@@ -5,6 +5,7 @@ import {
   clickupAutomationStatusSchema,
   getWorkboardToClickUpStatusMapping,
   clickupWebhookEventSchema,
+  type OpenClawTerminalContext,
   type BridgeToWorkboardCard,
   type BridgeJobState,
   type ClickUpTask,
@@ -680,24 +681,228 @@ function readNestedString(record: Record<string, unknown>, path: string[]): stri
   return typeof current === "string" && current.trim().length > 0 ? current.trim() : undefined;
 }
 
-function buildOpenClawStatusComment(
-  status: OpenClawWorkboardCardStatus,
+function readNestedValue(record: Record<string, unknown>, path: string[]): unknown | undefined {
+  let current: unknown = record;
+  for (const key of path) {
+    if (current === null || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+
+  return current;
+}
+
+function readTerminalArtifactList(value: unknown): Array<string | Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (typeof item === "string") {
+      const trimmed = item.trim();
+      return trimmed.length > 0 ? [trimmed] : [];
+    }
+
+    if (item !== null && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const candidate =
+        readString(record.url) ??
+        readString(record.href) ??
+        readString(record.link) ??
+        readString(record.artifactUrl) ??
+        readString(record.artifact_url) ??
+        readString(record.title) ??
+        readString(record.name);
+
+      return [candidate ?? record];
+    }
+
+    return [];
+  });
+}
+
+function readTerminalCommentList(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? [trimmed] : [];
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
+function renderTerminalContextValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const candidate =
+      readString(record.url) ??
+      readString(record.href) ??
+      readString(record.link) ??
+      readString(record.note) ??
+      readString(record.message) ??
+      readString(record.description) ??
+      readString(record.summary) ??
+      readString(record.text) ??
+      readString(record.title) ??
+      readString(record.name);
+    return candidate ?? JSON.stringify(record);
+  }
+
+  return undefined;
+}
+
+function renderTerminalContextSection(
+  label: string,
+  values: Array<string | Record<string, unknown>> | undefined,
+): string[] {
+  if (values === undefined || values.length === 0) {
+    return [];
+  }
+
+  const renderedItems = values
+    .map((value) => renderTerminalContextValue(value))
+    .filter((value): value is string => value !== undefined)
+    .map((value) => `- ${value}`);
+
+  return renderedItems.length > 0 ? [label + ":", ...renderedItems] : [];
+}
+
+export function extractOpenClawTerminalContext(
   raw: Record<string, unknown>,
-): string | undefined {
+  status: OpenClawWorkboardCardStatus,
+): OpenClawTerminalContext {
   const summary =
     readNestedString(raw, ["summary"]) ??
     readNestedString(raw, ["execution", "summary"]) ??
     readNestedString(raw, ["proof", "note"]) ??
+    readNestedString(raw, ["execution", "proof", "note"]) ??
     readNestedString(raw, ["notes"]);
+  const proof = readNestedValue(raw, ["proof"]) ?? readNestedValue(raw, ["execution", "proof"]);
+  const artifacts = [
+    ...readTerminalArtifactList(readNestedValue(raw, ["artifacts"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["execution", "artifacts"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["proof", "artifacts"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["execution", "proof", "artifacts"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["proof", "links"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["execution", "links"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["execution", "proof", "links"])),
+  ];
+  const comments = [
+    ...readTerminalCommentList(readNestedValue(raw, ["comments"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["execution", "comments"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["proof", "comments"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["execution", "proof", "comments"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["comment"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["execution", "comment"])),
+  ];
+  const blockerContext =
+    readNestedString(raw, ["blockerContext"]) ??
+    readNestedString(raw, ["blocker_context"]) ??
+    readNestedString(raw, ["blockerReason"]) ??
+    readNestedString(raw, ["blocker_reason"]) ??
+    readNestedString(raw, ["execution", "blockerContext"]) ??
+    readNestedString(raw, ["execution", "blocker_context"]) ??
+    readNestedString(raw, ["execution", "blockerReason"]) ??
+    readNestedString(raw, ["execution", "blocker_reason"]) ??
+    readNestedString(raw, ["execution", "proof", "blockerContext"]) ??
+    readNestedString(raw, ["execution", "proof", "blocker_context"]) ??
+    readNestedString(raw, ["execution", "proof", "blockerReason"]) ??
+    readNestedString(raw, ["execution", "proof", "blocker_reason"]) ??
+    readNestedString(raw, ["blocker", "reason"]) ??
+    readNestedString(raw, ["proof", "blockerReason"]) ??
+    readNestedString(raw, ["proof", "blocker_reason"]) ??
+    readNestedString(raw, ["proof", "blocker"]);
 
+  return {
+    ...(summary === undefined ? {} : { summary }),
+    ...(proof === undefined ? {} : { proof }),
+    ...(artifacts.length === 0 ? {} : { artifacts }),
+    ...(comments.length === 0 ? {} : { comments }),
+    ...(blockerContext === undefined && status === "blocked" && summary !== undefined
+      ? { blockerContext: summary }
+      : blockerContext === undefined
+        ? {}
+        : { blockerContext }),
+  };
+}
+
+function buildOpenClawTerminalSummary(
+  status: OpenClawWorkboardCardStatus,
+  terminalContext: OpenClawTerminalContext | undefined,
+): string {
+  if (status === "blocked") {
+    return (
+      terminalContext?.blockerContext ??
+      terminalContext?.summary ??
+      "OpenClaw blocked this task and needs human input before continuing."
+    );
+  }
+
+  return (
+    terminalContext?.summary ??
+    "OpenClaw finished this task and returned it for human review."
+  );
+}
+
+export function buildOpenClawStatusComment(
+  status: OpenClawWorkboardCardStatus,
+  terminalContext: OpenClawTerminalContext | undefined,
+): string | undefined {
   switch (status) {
     case "running":
       return "OpenClaw started work on this task.";
     case "review":
-    case "done":
-      return summary ?? "OpenClaw finished this task and returned it for human review.";
-    case "blocked":
-      return summary ?? "OpenClaw blocked this task and needs human input before continuing.";
+    case "done": {
+      const lines = [buildOpenClawTerminalSummary(status, terminalContext)];
+
+      const proof = renderTerminalContextValue(terminalContext?.proof);
+      if (proof !== undefined) {
+        lines.push("", `Proof: ${proof}`);
+      }
+
+      const artifactLines = renderTerminalContextSection("Artifacts", terminalContext?.artifacts);
+      if (artifactLines.length > 0) {
+        lines.push("", ...artifactLines);
+      }
+
+      const commentLines = renderTerminalContextSection("Comments", terminalContext?.comments?.map((comment) => comment));
+      if (commentLines.length > 0) {
+        lines.push("", ...commentLines);
+      }
+
+      return lines.join("\n");
+    }
+    case "blocked": {
+      const lines = [buildOpenClawTerminalSummary(status, terminalContext)];
+
+      const proof = renderTerminalContextValue(terminalContext?.proof);
+      if (proof !== undefined) {
+        lines.push("", `Proof: ${proof}`);
+      }
+
+      const artifactLines = renderTerminalContextSection("Artifacts", terminalContext?.artifacts);
+      if (artifactLines.length > 0) {
+        lines.push("", ...artifactLines);
+      }
+
+      const commentLines = renderTerminalContextSection("Comments", terminalContext?.comments?.map((comment) => comment));
+      if (commentLines.length > 0) {
+        lines.push("", ...commentLines);
+      }
+
+      return lines.join("\n");
+    }
     default:
       return undefined;
   }
@@ -1072,6 +1277,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
             ? "running"
             : current.bridgeState,
       openClawCardStatus: card.status,
+      ...(card.terminalContext === undefined ? {} : { terminalContext: card.terminalContext }),
       updatedAt,
     });
 
@@ -1079,6 +1285,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       taskId,
       workboardCardId: current.workboardCardId,
       status: card.status,
+      terminalContext: card.terminalContext,
       raw: card.raw,
     };
   }
@@ -1089,7 +1296,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       throw new Error(`Task ${taskId} has not been handed off to OpenClaw`);
     }
 
-    const previousStatus = current.openClawCardStatus;
     const refreshed = await refreshOpenClawCard(taskId);
     const next = state.getJob(taskId);
     if (refreshed.status === undefined || next === undefined) {
@@ -1104,12 +1310,14 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     const mapping = getWorkboardToClickUpStatusMapping(refreshed.status);
     const links = resolveArtifactLinks(next.task.projectKey ?? next.task.routingKey, artifactLinks, projectRoutingRules);
     const updatedAt = nowIso();
+    const terminalContext =
+      refreshed.terminalContext ?? extractOpenClawTerminalContext(refreshed.raw, refreshed.status);
     const runId =
       next.claim?.runId ??
       current.claim?.runId ??
       readNestedString(refreshed.raw, ["execution", "runId"]) ??
       "";
-    const comment = previousStatus === refreshed.status ? undefined : buildOpenClawStatusComment(refreshed.status, refreshed.raw);
+    const comment = buildOpenClawStatusComment(refreshed.status, terminalContext);
 
     if (clickup !== undefined) {
       if (comment !== undefined && mapping.syncComment) {
@@ -1120,7 +1328,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         status: mapping.clickupStatus,
         customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
           automation_state: mapping.automationState,
-          last_error: refreshed.status === "blocked" ? comment ?? "Blocked in OpenClaw" : "",
+          last_error: refreshed.status === "blocked" ? buildOpenClawTerminalSummary("blocked", terminalContext) : "",
           run_id: runId,
           workboard_id: current.workboardCardId,
         }),
@@ -1147,7 +1355,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     logger.info("synced OpenClaw card status back to ClickUp", {
       taskId,
       workboardCardId: current.workboardCardId,
-      previousStatus: previousStatus ?? null,
+      previousStatus: current.openClawCardStatus ?? null,
       status: refreshed.status,
       clickupStatus: mapping.clickupStatus,
     });
@@ -1163,12 +1371,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
 
   async function watchOpenClawCards() {
     const jobs = state.listJobs().filter(
-      (job) =>
-        job.workboardCardId !== undefined &&
-        job.bridgeState !== "synced_back" &&
-        job.openClawCardStatus !== "review" &&
-        job.openClawCardStatus !== "done" &&
-        job.openClawCardStatus !== "blocked",
+      (job) => job.workboardCardId !== undefined && job.bridgeState !== "synced_back",
     );
     const results: Array<Record<string, unknown>> = [];
 

@@ -7,6 +7,7 @@ import type {
   ClaimRecord,
   ClickUpTask,
   IdempotencyRecord,
+  OpenClawTerminalContext,
   OpenClawWorkboardCardStatus,
   WorkerEvent,
   WorkboardState,
@@ -20,6 +21,7 @@ export type JobRecord = {
   handoffPayload?: BridgeToWorkboardCard | undefined;
   workboardCardId?: string | undefined;
   openClawCardStatus?: OpenClawWorkboardCardStatus | undefined;
+  terminalContext?: OpenClawTerminalContext | undefined;
   handedOffAt?: string | undefined;
   dispatchedAt?: string | undefined;
   idempotencyKey: string | undefined;
@@ -49,6 +51,7 @@ export type JobPatch = {
   handoffPayload?: BridgeToWorkboardCard | undefined;
   workboardCardId?: string | undefined;
   openClawCardStatus?: OpenClawWorkboardCardStatus | undefined;
+  terminalContext?: OpenClawTerminalContext | undefined;
   handedOffAt?: string | undefined;
   dispatchedAt?: string | undefined;
   idempotencyKey?: string | undefined;
@@ -78,6 +81,15 @@ type PersistedState = {
 function cloneJob(job: JobRecord): JobRecord {
   return {
     ...job,
+    ...(job.terminalContext === undefined
+      ? {}
+      : {
+          terminalContext: {
+            ...job.terminalContext,
+            artifacts: job.terminalContext.artifacts?.slice(),
+            comments: job.terminalContext.comments?.slice(),
+          },
+        }),
     events: job.events.slice(),
   };
 }
@@ -105,6 +117,7 @@ export class InMemoryStateStore {
     if ("handoffPayload" in patch) next.handoffPayload = patch.handoffPayload;
     if ("workboardCardId" in patch) next.workboardCardId = patch.workboardCardId;
     if ("openClawCardStatus" in patch) next.openClawCardStatus = patch.openClawCardStatus;
+    if ("terminalContext" in patch) next.terminalContext = patch.terminalContext;
     if ("handedOffAt" in patch) next.handedOffAt = patch.handedOffAt;
     if ("dispatchedAt" in patch) next.dispatchedAt = patch.dispatchedAt;
     if ("idempotencyKey" in patch) next.idempotencyKey = patch.idempotencyKey;
