@@ -67,3 +67,33 @@ test("OpenClawWorkboardAdapter createCard shells out with expected args", async 
   assert.ok(calls[0]?.args.includes("--notes"));
   assert.ok(calls[0]?.args.includes("--json"));
 });
+
+test("OpenClawWorkboardAdapter showCard extracts terminal context from payloads", async () => {
+  const adapter = new OpenClawWorkboardAdapter({
+    runner: async () => {
+      return {
+        stdout: JSON.stringify({
+          id: "card-terminal",
+          status: "blocked",
+          summary: "Workboard reported a blocker.",
+          proof: {
+            note: "No execution proof was produced.",
+          },
+          artifacts: ["https://example.com/log"],
+          comments: ["Waiting on a dependency."],
+          blocker_reason: "Dependency not available.",
+        }),
+        stderr: "",
+      };
+    },
+  });
+
+  const card = await adapter.showCard("card-terminal");
+
+  assert.equal(card.id, "card-terminal");
+  assert.equal(card.status, "blocked");
+  assert.equal(card.terminalContext?.summary, "Workboard reported a blocker.");
+  assert.deepEqual(card.terminalContext?.comments, ["Waiting on a dependency."]);
+  assert.equal(card.terminalContext?.blockerContext, "Dependency not available.");
+  assert.deepEqual(card.terminalContext?.artifacts, ["https://example.com/log"]);
+});

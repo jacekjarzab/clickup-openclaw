@@ -50,6 +50,14 @@ export type OpenClawWorkboardCardStatus = (typeof openClawWorkboardCardStatuses)
 
 export const openClawWorkboardCardStatusSchema = z.enum(openClawWorkboardCardStatuses);
 
+export type OpenClawTerminalContext = {
+  summary?: string | undefined;
+  proof?: unknown;
+  artifacts?: Array<string | Record<string, unknown>> | undefined;
+  comments?: string[] | undefined;
+  blockerContext?: string | undefined;
+};
+
 export const bridgeJobStates = [
   "received",
   "deduplicated",

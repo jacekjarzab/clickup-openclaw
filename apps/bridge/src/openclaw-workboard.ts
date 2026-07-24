@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import {
   bridgeToWorkboardCardSchema,
   openClawWorkboardCardStatusSchema,
+  type OpenClawTerminalContext,
   type BridgeToWorkboardCard,
   type OpenClawWorkboardCardStatus,
 } from "@clickup-openclaw/shared";
@@ -31,6 +32,7 @@ export type OpenClawWorkboardDispatchResult = {
 export type OpenClawWorkboardCardSummary = {
   id: string;
   status?: OpenClawWorkboardCardStatus | undefined;
+  terminalContext?: OpenClawTerminalContext | undefined;
   raw: Record<string, unknown>;
 };
 
@@ -81,10 +83,139 @@ function buildRunnerOptions(cwd: string | undefined, timeoutMs: number): { cwd?:
 
 function toCardSummary(id: string, raw: Record<string, unknown>): OpenClawWorkboardCardSummary {
   const status = normalizeCardStatus(raw.status);
+  const terminalContext = status === undefined ? undefined : extractTerminalContext(raw, status);
   return {
     id,
     raw,
+    ...(terminalContext === undefined ? {} : { terminalContext }),
     ...(status === undefined ? {} : { status }),
+  };
+}
+
+function readNestedString(record: Record<string, unknown>, path: string[]): string | undefined {
+  let current: unknown = record;
+  for (const key of path) {
+    if (current === null || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+
+  return typeof current === "string" && current.trim().length > 0 ? current.trim() : undefined;
+}
+
+function readNestedValue(record: Record<string, unknown>, path: string[]): unknown | undefined {
+  let current: unknown = record;
+  for (const key of path) {
+    if (current === null || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+
+  return current;
+}
+
+function readTerminalArtifactList(value: unknown): Array<string | Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (typeof item === "string") {
+      const trimmed = item.trim();
+      return trimmed.length > 0 ? [trimmed] : [];
+    }
+
+    if (item !== null && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const candidate =
+        readNestedString(record, ["url"]) ??
+        readNestedString(record, ["href"]) ??
+        readNestedString(record, ["link"]) ??
+        readNestedString(record, ["artifactUrl"]) ??
+        readNestedString(record, ["artifact_url"]) ??
+        readNestedString(record, ["title"]) ??
+        readNestedString(record, ["name"]);
+
+      return [candidate ?? record];
+    }
+
+    return [];
+  });
+}
+
+function readTerminalCommentList(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? [trimmed] : [];
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
+function extractTerminalContext(
+  raw: Record<string, unknown>,
+  status: OpenClawWorkboardCardStatus,
+): OpenClawTerminalContext {
+  const summary =
+    readNestedString(raw, ["summary"]) ??
+    readNestedString(raw, ["execution", "summary"]) ??
+    readNestedString(raw, ["proof", "note"]) ??
+    readNestedString(raw, ["execution", "proof", "note"]) ??
+    readNestedString(raw, ["notes"]);
+  const proof = readNestedValue(raw, ["proof"]) ?? readNestedValue(raw, ["execution", "proof"]);
+  const artifacts = [
+    ...readTerminalArtifactList(readNestedValue(raw, ["artifacts"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["execution", "artifacts"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["proof", "artifacts"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["execution", "proof", "artifacts"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["proof", "links"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["execution", "links"])),
+    ...readTerminalArtifactList(readNestedValue(raw, ["execution", "proof", "links"])),
+  ];
+  const comments = [
+    ...readTerminalCommentList(readNestedValue(raw, ["comments"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["execution", "comments"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["proof", "comments"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["execution", "proof", "comments"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["comment"])),
+    ...readTerminalCommentList(readNestedValue(raw, ["execution", "comment"])),
+  ];
+  const blockerContext =
+    readNestedString(raw, ["blockerContext"]) ??
+    readNestedString(raw, ["blocker_context"]) ??
+    readNestedString(raw, ["blockerReason"]) ??
+    readNestedString(raw, ["blocker_reason"]) ??
+    readNestedString(raw, ["execution", "blockerContext"]) ??
+    readNestedString(raw, ["execution", "blocker_context"]) ??
+    readNestedString(raw, ["execution", "blockerReason"]) ??
+    readNestedString(raw, ["execution", "blocker_reason"]) ??
+    readNestedString(raw, ["execution", "proof", "blockerContext"]) ??
+    readNestedString(raw, ["execution", "proof", "blocker_context"]) ??
+    readNestedString(raw, ["execution", "proof", "blockerReason"]) ??
+    readNestedString(raw, ["execution", "proof", "blocker_reason"]) ??
+    readNestedString(raw, ["blocker", "reason"]) ??
+    readNestedString(raw, ["proof", "blockerReason"]) ??
+    readNestedString(raw, ["proof", "blocker_reason"]) ??
+    readNestedString(raw, ["proof", "blocker"]);
+
+  return {
+    ...(summary === undefined ? {} : { summary }),
+    ...(proof === undefined ? {} : { proof }),
+    ...(artifacts.length === 0 ? {} : { artifacts }),
+    ...(comments.length === 0 ? {} : { comments }),
+    ...(blockerContext === undefined && status === "blocked" && summary !== undefined
+      ? { blockerContext: summary }
+      : blockerContext === undefined
+        ? {}
+        : { blockerContext }),
   };
 }
 

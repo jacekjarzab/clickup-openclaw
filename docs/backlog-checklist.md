@@ -43,8 +43,20 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Treat Workboard status, blocking, and completion as execution truth
 - [x] Read Workboard card state and linked run data from Bridge
 - [x] Detect terminal states: `review`, `done`, `blocked`
-- [ ] Capture OpenClaw summary, proof, artifacts, comments, and blocker context
-- [ ] Handle Gateway restarts or stale cards by re-reading Workboard state before retrying Bridge actions
+- [x] Capture execution metadata from Workboard terminal payloads
+  - Extract summary text from `summary`, `execution.summary`, `proof.note`, or `notes`
+  - Preserve proof, artifact, and comment context when the Workboard response includes it
+  - Keep the parsed terminal context available to Bridge write-back and logs
+- [x] Capture blocker context for `blocked` runs
+  - Prefer a human-readable blocker reason over raw status text
+  - Fall back to a generic blocked message when the Workboard payload is sparse
+- [x] Re-read Workboard state before retrying Bridge actions
+  - Treat Gateway restarts, stale cards, and lost process state as reread conditions
+  - Never assume cached status is newer than a fresh `openclaw workboard show`
+- [x] Add tests for terminal payload extraction and reread behavior
+  - Cover summary, proof, artifact, and blocker extraction
+  - Cover status comment selection for `review`, `done`, and `blocked`
+  - Cover the stale-card / restart-safe retry path
 
 ## Phase 4: ClickUp Write-Back
 
