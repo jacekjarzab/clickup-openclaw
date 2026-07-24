@@ -98,11 +98,27 @@
 
 ## Phase 6: Reliability
 
-- Add retry policy for transient ClickUp, Gateway, or CLI failures
-- Add dead-letter handling for repeated handoff failures
-- Add detection for stale Workboard cards and interrupted runs
+ - Add retry policy for transient ClickUp, Gateway, or CLI failures
+  - Classify retriable errors for ClickUp API, OpenClaw CLI, and local Gateway outages
+  - Apply bounded exponential backoff with a fixed max attempt count
+  - Retry handoff, dispatch, and sync separately so one failure does not poison the whole job
+  - Add tests for retryable network failure, non-retryable contract error, and exhausted retry budget
+ - Add dead-letter handling for repeated handoff failures
+  - Track retry count and last failure reason on the Bridge job
+  - Mark jobs dead-lettered after the configured threshold
+  - Preserve the failure context for operator review instead of dropping the job
+  - Add tests for handoff failure, repeated dispatch failure, and dead-letter persistence
+ - Add detection for stale Workboard cards and interrupted runs
+  - Detect jobs stuck in `card_created`, `dispatched`, or `running` beyond their expected age
+  - Detect cards with missing or stale `run_id`, `workboard_id`, or `last_sync_at`
+  - Trigger reread and reconciliation before creating or dispatching anything new
+  - Add tests for stale-card detection and interrupted-run recovery
 - Add visibility into dispatch failures, queue stalls, and sync lag
 - Add restart-safe reconciliation so Bridge can resume after crashes without duplicate card creation
+  - Reload persisted Bridge state on startup
+  - Re-read Workboard state for every mapped card before resuming dispatch or sync
+  - Reuse the stored idempotency key and workboard mapping after a crash
+  - Add tests for crash recovery, duplicate avoidance, and restart-safe sync replay
 
 ## Phase 7: Operator Controls
 

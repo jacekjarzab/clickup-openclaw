@@ -133,3 +133,65 @@ test("retry policy retries transient ClickUp failures", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("retry policy stops on non-retriable ClickUp contract errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+
+    return {
+      ok: false,
+      status: 400,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const client = createClickUpClient({
+      token: "token",
+      retry: {
+        maxAttempts: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+      },
+    });
+
+    await assert.rejects(async () => client.getTask("task-4"), /400/);
+    assert.equal(requests.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("retry policy exhausts the retry budget on repeated ClickUp server errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit | undefined }> = [];
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+
+    return {
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const client = createClickUpClient({
+      token: "token",
+      retry: {
+        maxAttempts: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+      },
+    });
+
+    await assert.rejects(async () => client.getTask("task-5"), /503/);
+    assert.equal(requests.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

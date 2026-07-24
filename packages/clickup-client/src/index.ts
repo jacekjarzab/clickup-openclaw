@@ -10,6 +10,61 @@ type ClickUpClientOptions = {
   };
 };
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function extractStatusCode(error: unknown): number | undefined {
+  const message = errorMessage(error);
+  const matches = [
+    /:\s*(\d{3})(?:\b|$)/,
+    /\bstatus\s+(\d{3})\b/i,
+    /\bHTTP\s+(\d{3})\b/i,
+  ];
+
+  for (const pattern of matches) {
+    const match = message.match(pattern);
+    if (match?.[1] !== undefined) {
+      const parsed = Number(match[1]);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function isRetriableClickUpError(error: unknown): boolean {
+  if (error !== null && typeof error === "object" && "retriable" in error) {
+    const retriable = (error as { retriable?: unknown }).retriable;
+    if (typeof retriable === "boolean") {
+      return retriable;
+    }
+  }
+
+  const status = extractStatusCode(error);
+  if (status !== undefined) {
+    return status === 408 || status === 425 || status === 429 || status >= 500;
+  }
+
+  const message = errorMessage(error).toLowerCase();
+  return (
+    message.includes("fetch failed") ||
+    message.includes("networkerror") ||
+    message.includes("socket hang up") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused") ||
+    message.includes("enetunreach") ||
+    message.includes("eai_again") ||
+    message.includes("etimedout") ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    message.includes("temporary") ||
+    message.includes("unavailable")
+  );
+}
+
 export function createClickUpClient(options: ClickUpClientOptions) {
   const baseUrl = options.baseUrl ?? "https://api.clickup.com/api/v2";
   const retry = {
@@ -42,7 +97,7 @@ export function createClickUpClient(options: ClickUpClientOptions) {
       try {
         response = await request();
       } catch (error) {
-        if (attempt === retry.maxAttempts) {
+        if (!isRetriableClickUpError(error) || attempt === retry.maxAttempts) {
           throw error instanceof Error
             ? error
             : new Error(`Failed to ${action} ClickUp task ${taskId}`);

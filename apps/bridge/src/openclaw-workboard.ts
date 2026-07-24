@@ -67,6 +67,36 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isRetriableOpenClawError(error: unknown): boolean {
+  if (error !== null && typeof error === "object" && "retriable" in error) {
+    const retriable = (error as { retriable?: unknown }).retriable;
+    if (typeof retriable === "boolean") {
+      return retriable;
+    }
+  }
+
+  const message = errorMessage(error).toLowerCase();
+  return (
+    message.includes("gateway unavailable") ||
+    message.includes("temporary") ||
+    message.includes("temporarily unavailable") ||
+    message.includes("connection refused") ||
+    message.includes("econnrefused") ||
+    message.includes("econnreset") ||
+    message.includes("socket hang up") ||
+    message.includes("etimedout") ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    message.includes("fetch failed") ||
+    message.includes("i/o error") ||
+    message.includes("broken pipe")
+  );
+}
+
 function parseJsonObject(stdout: string): Record<string, unknown> {
   const parsed = JSON.parse(stdout) as unknown;
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -293,7 +323,7 @@ export class OpenClawWorkboardAdapter {
       try {
         return await fn();
       } catch (error) {
-        if (attempt >= this.retry.attempts) {
+        if (!isRetriableOpenClawError(error) || attempt >= this.retry.attempts) {
           throw error instanceof Error
             ? error
             : new Error(`Failed to ${operation} openclaw workboard`);
@@ -308,45 +338,47 @@ export class OpenClawWorkboardAdapter {
   }
 
   async createCard(input: BridgeToWorkboardCard): Promise<OpenClawWorkboardCardSummary> {
-    const payload = bridgeToWorkboardCardSchema.parse(input);
-    const args = [
-      "workboard",
-      "create",
-      payload.card.title,
-      "--notes",
-      buildOpenClawNotes(payload),
-      "--status",
-      payload.card.status,
-      "--priority",
-      payload.card.priority,
-      "--json",
-    ];
+    return this.runWithRetry("create card", async () => {
+      const payload = bridgeToWorkboardCardSchema.parse(input);
+      const args = [
+        "workboard",
+        "create",
+        payload.card.title,
+        "--notes",
+        buildOpenClawNotes(payload),
+        "--status",
+        payload.card.status,
+        "--priority",
+        payload.card.priority,
+        "--json",
+      ];
 
-    const boardId = payload.card.boardId ?? this.boardId;
-    if (boardId !== undefined) {
-      args.push("--board", boardId);
-    }
+      const boardId = payload.card.boardId ?? this.boardId;
+      if (boardId !== undefined) {
+        args.push("--board", boardId);
+      }
 
-    if (payload.card.agentId !== undefined) {
-      args.push("--agent", payload.card.agentId);
-    }
+      if (payload.card.agentId !== undefined) {
+        args.push("--agent", payload.card.agentId);
+      }
 
-    if (payload.card.labels.length > 0) {
-      args.push("--labels", payload.card.labels.join(","));
-    }
+      if (payload.card.labels.length > 0) {
+        args.push("--labels", payload.card.labels.join(","));
+      }
 
-    const { stdout } = await this.runner(
-      this.binary,
-      args,
-      buildRunnerOptions(this.cwd, this.timeoutMs),
-    );
-    const raw = parseJsonObject(stdout);
-    const id = typeof raw.id === "string" ? raw.id : undefined;
-    if (id === undefined) {
-      throw new Error("OpenClaw card create response did not include an id");
-    }
+      const { stdout } = await this.runner(
+        this.binary,
+        args,
+        buildRunnerOptions(this.cwd, this.timeoutMs),
+      );
+      const raw = parseJsonObject(stdout);
+      const id = typeof raw.id === "string" ? raw.id : undefined;
+      if (id === undefined) {
+        throw new Error("OpenClaw card create response did not include an id");
+      }
 
-    return toCardSummary(id, raw);
+      return toCardSummary(id, raw);
+    });
   }
 
   async showCard(id: string): Promise<OpenClawWorkboardCardSummary> {

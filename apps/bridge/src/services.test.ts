@@ -7,7 +7,7 @@ import {
   createBridgeServices,
   extractOpenClawTerminalContext,
 } from "./services.js";
-import { InMemoryStateStore } from "@clickup-openclaw/state";
+import { InMemoryStateStore, type JobRecord } from "@clickup-openclaw/state";
 import type {
   BridgeToWorkboardCard,
   ClickUpTask,
@@ -21,9 +21,31 @@ class FakeOpenClawWorkboardAdapter {
 
   public readonly showCalls: string[] = [];
 
+  public readonly listCalls: Array<{ boardId?: string; status?: OpenClawWorkboardCardStatus }> = [];
+
   public readonly showResponses = new Map<string, { status: OpenClawWorkboardCardStatus; raw: Record<string, unknown> }>();
 
+  public readonly listResponses: Array<
+    Array<{ id: string; status?: OpenClawWorkboardCardStatus; raw: Record<string, unknown> }>
+  > = [];
+
+  public createAttempts = 0;
+
+  public dispatchAttempts = 0;
+
+  public listAttempts = 0;
+
+  public readonly createFailures: unknown[] = [];
+
+  public readonly dispatchFailures: unknown[] = [];
+
   async createCard(input: BridgeToWorkboardCard) {
+    this.createAttempts += 1;
+    const failure = this.createFailures.shift();
+    if (failure !== undefined) {
+      throw failure;
+    }
+
     this.created.push(input);
     return {
       id: `card-${this.created.length}`,
@@ -36,6 +58,12 @@ class FakeOpenClawWorkboardAdapter {
   }
 
   async dispatch(input: { boardId?: string; maxStarts?: number } = {}) {
+    this.dispatchAttempts += 1;
+    const failure = this.dispatchFailures.shift();
+    if (failure !== undefined) {
+      throw failure;
+    }
+
     this.dispatched.push(input);
     return {
       started: this.created.length,
@@ -71,24 +99,39 @@ class FakeOpenClawWorkboardAdapter {
     };
   }
 
-  async listCards() {
+  async listCards(input: { boardId?: string; status?: OpenClawWorkboardCardStatus } = {}) {
+    this.listAttempts += 1;
+    this.listCalls.push(input);
+    const next = this.listResponses.shift();
+    if (next !== undefined) {
+      return next;
+    }
+
     return [];
   }
 }
 
-function buildConfig() {
+function buildConfig(overrides: Record<string, string> = {}) {
   return loadConfig({
     PORT: "8787",
     HOST: "127.0.0.1",
+    BRIDGE_RETRY_MAX_ATTEMPTS: "2",
+    BRIDGE_RETRY_BASE_DELAY_MS: "0",
+    BRIDGE_RETRY_MAX_DELAY_MS: "0",
+    BRIDGE_DEAD_LETTER_THRESHOLD: "2",
+    BRIDGE_STALE_CARD_AGE_MS: "0",
+    BRIDGE_INTERRUPTED_RUN_AGE_MS: "0",
+    ...overrides,
   });
 }
 
-function buildClickUpConfig() {
+function buildClickUpConfig(overrides: Record<string, string> = {}) {
   return loadConfig({
     PORT: "8787",
     HOST: "127.0.0.1",
     CLICKUP_API_TOKEN: "token",
     CLICKUP_BASE_URL: "https://example.invalid/api/v2",
+    ...overrides,
   });
 }
 
@@ -98,6 +141,41 @@ function buildSeedTask(id: string): ClickUpTask {
     name: `Task ${id}`,
     status: "ready for openclaw",
     tags: [],
+  };
+}
+
+function buildJobRecord(taskId: string, overrides: Partial<JobRecord> = {}): JobRecord {
+  const task = overrides.task ?? buildSeedTask(taskId);
+  return {
+    task,
+    state: "eligible",
+    bridgeState: "eligible",
+    claim: undefined,
+    handoffPayload: undefined,
+    workboardCardId: undefined,
+    openClawCardStatus: undefined,
+    terminalContext: undefined,
+    clickupWriteBack: undefined,
+    handedOffAt: undefined,
+    dispatchedAt: undefined,
+    idempotencyKey: `${taskId}::taskUpdated::ready for openclaw::2026-07-23T10:00:00.000Z`,
+    workType: undefined,
+    workflowTemplate: undefined,
+    decompositionPlan: undefined,
+    triageReason: undefined,
+    template: undefined,
+    retryCount: 0,
+    lastError: undefined,
+    lastEventAt: "2026-07-23T10:00:00.000Z",
+    updatedAt: "2026-07-23T10:00:00.000Z",
+    events: [],
+    blockedAt: undefined,
+    claimedAt: undefined,
+    terminalAt: undefined,
+    outcome: undefined,
+    deadLetteredAt: undefined,
+    deadLetterReason: undefined,
+    ...overrides,
   };
 }
 
@@ -237,6 +315,334 @@ test("dispatchOpenClawWorkboard only advances queued cards", async () => {
   assert.equal(result.dispatchedAt.length > 0, true);
   assert.equal(services.state.getJob("queued-task")?.bridgeState, "dispatched");
   assert.equal(services.state.getJob("synced-task")?.bridgeState, "synced_back");
+});
+
+test("handoff retries transient gateway failures and dead-letters after repeated attempts", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.createFailures.push(new Error("temporary gateway unavailable"), new Error("temporary gateway unavailable"));
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  await assert.rejects(
+    async () =>
+      services.ingestWebhook({
+        event: "taskUpdated",
+        taskId: "task-handoff",
+        status: "ready for openclaw",
+        updatedAt: "2026-07-23T10:00:00.000Z",
+      }),
+    /temporary gateway unavailable/,
+  );
+
+  const job = services.state.getJob("task-handoff");
+  assert.equal(adapter.createAttempts, 2);
+  assert.equal(job?.bridgeState, "dead_lettered");
+  assert.equal(job?.outcome, "deadLettered");
+  assert.equal(job?.retryCount, 2);
+  assert.equal(job?.deadLetteredAt !== undefined, true);
+  assert.match(job?.deadLetterReason ?? "", /temporary gateway unavailable/);
+});
+
+test("handoff clears failed outcome after a successful retry", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.createFailures.push(new Error("temporary gateway unavailable"));
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  state.upsertJob(
+    buildJobRecord("task-recover", {
+      bridgeState: "eligible",
+      outcome: "failed",
+      lastError: "temporary gateway unavailable",
+    }),
+  );
+
+  const result = await services.handoffJobToOpenClaw("task-recover");
+
+  assert.equal(adapter.createAttempts, 2);
+  assert.equal(result.duplicate, false);
+  assert.equal(services.state.getJob("task-recover")?.outcome, undefined);
+  assert.equal(services.state.getJob("task-recover")?.lastError, undefined);
+});
+
+test("handoff does not retry bridge errors that merely mention 500 in identifiers", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.createFailures.push(new Error("OpenClaw card card-5001 not found: 404"));
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  state.upsertJob(
+    buildJobRecord("task-5001", {
+      bridgeState: "eligible",
+    }),
+  );
+
+  await assert.rejects(async () => services.handoffJobToOpenClaw("task-5001"), /404/);
+  assert.equal(adapter.createAttempts, 1);
+});
+
+test("dispatch retries transient failures and dead-letters queued cards after the threshold", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.dispatchFailures.push(new Error("temporary gateway unavailable"), new Error("temporary gateway unavailable"));
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  await assert.rejects(
+    async () =>
+      services.ingestWebhook({
+        event: "taskUpdated",
+        taskId: "task-dispatch",
+        status: "ready for openclaw",
+        updatedAt: "2026-07-23T10:00:00.000Z",
+      }),
+    /temporary gateway unavailable/,
+  );
+
+  const job = services.state.getJob("task-dispatch");
+  assert.equal(adapter.dispatchAttempts, 2);
+  assert.equal(job?.bridgeState, "dead_lettered");
+  assert.equal(job?.outcome, "deadLettered");
+  assert.equal(job?.retryCount, 2);
+  assert.equal(job?.deadLetteredAt !== undefined, true);
+  assert.match(job?.deadLetterReason ?? "", /temporary gateway unavailable/);
+});
+
+test("handoff stops retrying contract errors after the first failure", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.createFailures.push(new Error("unrecognized key: unexpected"));
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  await assert.rejects(
+    async () =>
+      services.ingestWebhook({
+        event: "taskUpdated",
+        taskId: "task-contract",
+        status: "ready for openclaw",
+        updatedAt: "2026-07-23T10:00:00.000Z",
+      }),
+    /unrecognized key/i,
+  );
+
+  const job = services.state.getJob("task-contract");
+  assert.equal(adapter.createAttempts, 1);
+  assert.equal(job?.bridgeState, "eligible");
+  assert.equal(job?.outcome, "failed");
+  assert.equal(job?.retryCount, 1);
+  assert.equal(job?.deadLetteredAt, undefined);
+});
+
+test("sync rereads the card on retry instead of reusing stale state", async () => {
+  const originalFetch = globalThis.fetch;
+  const clickUpCalls: Array<{ url: string; method: string; body?: string | undefined }> = [];
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  let putAttempts = 0;
+
+  adapter.showResponses.set("card-sync", {
+    status: "running",
+    raw: {
+      id: "card-sync",
+      status: "running",
+      summary: "Initial running state.",
+    },
+  });
+
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    clickUpCalls.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+
+    if ((init?.method ?? "GET") === "PUT" && String(url).includes("/task/task-sync")) {
+      putAttempts += 1;
+      if (putAttempts === 1) {
+        adapter.showResponses.set("card-sync", {
+          status: "done",
+          raw: {
+            id: "card-sync",
+            status: "done",
+            summary: "Completed after the retry.",
+          },
+        });
+
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({}),
+        } as Response;
+      }
+    }
+
+    return {
+      ok: true,
+      json: async () => ({}),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const state = new InMemoryStateStore();
+    state.upsertJob(
+      buildJobRecord("task-sync", {
+        bridgeState: "dispatched",
+        workboardCardId: "card-sync",
+        openClawCardStatus: "running",
+        dispatchedAt: "2026-07-23T10:05:00.000Z",
+        claimedAt: "2026-07-23T10:00:00.000Z",
+      }),
+    );
+
+    const services = createBridgeServices(buildClickUpConfig(), {
+      stateStore: state,
+      openClawWorkboard: adapter as never,
+    });
+
+    await assert.rejects(async () => services.syncOpenClawCardToClickUp("task-sync"), /400/);
+
+    const result = await services.syncOpenClawCardToClickUp("task-sync");
+
+    assert.equal(result.synced, true);
+    assert.equal(adapter.showCalls.length, 2);
+    assert.equal(services.state.getJob("task-sync")?.openClawCardStatus, "done");
+    assert.equal(services.state.getJob("task-sync")?.outcome, "succeeded");
+    assert.ok(clickUpCalls.filter((call) => call.method === "PUT").length >= 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("stale cards are reconciled before bridge tries to create or dispatch anything new", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.listResponses.push([
+    {
+      id: "card-stale",
+      status: "running",
+      raw: {
+        id: "card-stale",
+        status: "running",
+        metadata: {
+          sourceSystem: "clickup",
+          clickupTaskId: "task-stale",
+          idempotencyKey: "clickup-task:task-stale",
+        },
+      },
+    },
+  ]);
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  state.upsertJob(
+    buildJobRecord("task-stale", {
+      bridgeState: "card_created",
+      workboardCardId: undefined,
+      handedOffAt: "2026-07-23T08:00:00.000Z",
+      updatedAt: "2026-07-23T08:00:00.000Z",
+    }),
+  );
+
+  const result = await services.handoffJobToOpenClaw("task-stale");
+
+  assert.equal(adapter.listAttempts, 1);
+  assert.equal(adapter.createAttempts, 0);
+  assert.equal(result.duplicate, true);
+  assert.equal(services.state.getJob("task-stale")?.workboardCardId, "card-stale");
+  assert.equal(services.state.getJob("task-stale")?.openClawCardStatus, "running");
+});
+
+test("interrupted runs are reconciled on startup before resuming work", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.showResponses.set("card-running", {
+    status: "running",
+    raw: {
+      id: "card-running",
+      status: "running",
+      summary: "The card was already running before the restart.",
+    },
+  });
+
+  state.upsertJob(
+    buildJobRecord("task-running", {
+      bridgeState: "dispatched",
+      workboardCardId: "card-running",
+      openClawCardStatus: undefined,
+      claim: undefined,
+      dispatchedAt: undefined,
+      handedOffAt: "2026-07-23T08:00:00.000Z",
+      updatedAt: "2026-07-23T08:00:00.000Z",
+    }),
+  );
+
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  const reconciled = await services.reconcilePersistedState();
+
+  assert.equal(reconciled.reconciled, 1);
+  assert.equal(adapter.showCalls.length, 1);
+  assert.equal(services.state.getJob("task-running")?.openClawCardStatus, "running");
+  assert.equal(services.state.getJob("task-running")?.bridgeState, "running");
+});
+
+test("startup reconciliation recovers an existing mapped card instead of creating a duplicate", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  adapter.listResponses.push([
+    {
+      id: "card-recovered",
+      status: "ready",
+      raw: {
+        id: "card-recovered",
+        status: "ready",
+        metadata: {
+          sourceSystem: "clickup",
+          clickupTaskId: "task-recover",
+          idempotencyKey: "clickup-task:task-recover",
+        },
+      },
+    },
+  ]);
+
+  state.upsertJob(
+    buildJobRecord("task-recover", {
+      bridgeState: "eligible",
+      workboardCardId: undefined,
+      handedOffAt: undefined,
+      updatedAt: "2026-07-23T08:00:00.000Z",
+    }),
+  );
+
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  const result = await services.handoffJobToOpenClaw("task-recover");
+
+  assert.equal(adapter.listAttempts, 1);
+  assert.equal(adapter.createAttempts, 0);
+  assert.equal(result.duplicate, true);
+  assert.equal(services.state.getJob("task-recover")?.workboardCardId, "card-recovered");
 });
 
 test("extractOpenClawTerminalContext preserves terminal summary, proof, artifacts, comments, and blocker context", () => {
