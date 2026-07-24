@@ -161,22 +161,11 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 8: Quality and Scale
 
-- [x] Define a multi-project routing model for ClickUp lists, folders, and projects
-  - Decide how Bridge resolves routing when multiple project scopes match one task
-  - Keep the routing rules deterministic and testable
-- [x] Support multiple ClickUp lists, folders, or projects with the same Bridge rules
-  - Prove the same Bridge config can handle more than one project tree
-  - Add regression tests for cross-project isolation
-- [x] Support per-project routing labels and metadata on Workboard cards
-  - Write project-specific labels, tags, or routing metadata during handoff
-  - Confirm the metadata survives rereads and sync loops
+- [ ] Support multiple ClickUp lists, folders, or projects with the same Bridge rules
+- [ ] Support per-project routing labels and metadata on Workboard cards
 - [x] Add dashboards for queue health, sync lag, and completion rates
-- [x] Add reporting for card lifecycle throughput and blocked-task categories
-  - Track handoff-to-running, running-to-terminal, and queue wait times
-  - Break blocked outcomes into useful categories, not just a single bucket
+- [ ] Add reporting for card lifecycle throughput and blocked-task categories
 - [ ] Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
-  - Compare latency, reconnect behavior, and operational complexity against the CLI path
-  - Define what would justify adopting it as an optional transport
 
 ## Replaced or Removed Work
 

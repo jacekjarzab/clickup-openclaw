@@ -146,26 +146,11 @@
 
 ## Phase 8: Quality and Scale
 
-- Implemented: a deterministic multi-project routing model now scores list, status, and label matches instead of relying on insertion order
-- Define a multi-project routing model for ClickUp lists, folders, and projects
-  - Decide how Bridge resolves routing when multiple scopes match one task
-  - Keep the resolution deterministic and covered by tests
-- Implemented: the same Bridge config can now route across multiple project trees with regression coverage
 - Support multiple ClickUp lists, folders, or projects with the same Bridge rules
-  - Prove one Bridge config can handle more than one project tree
-  - Verify routing isolation between projects
-- Implemented: project-specific routing links now flow into Workboard card metadata and task labels
 - Support per-project routing labels and metadata on Workboard cards
-  - Write project-specific labels, tags, or routing metadata during handoff
-  - Confirm the metadata persists through rereads and sync loops
 - Implemented: dashboards exist for queue health and completion rates, including sync lag metrics
-- Implemented: reporting now includes routing throughput, queue wait, running duration, and blocked categories
 - Add reporting for card lifecycle throughput and blocked-task categories
-  - Track handoff-to-running, running-to-terminal, and queue wait times
-  - Break blocked outcomes into actionable categories
 - Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
-  - Compare latency, reconnect behavior, and operator overhead against the CLI path
-  - Document the criteria that would justify adoption
 
 ## Recommended First Build Order
 

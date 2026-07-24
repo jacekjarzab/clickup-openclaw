@@ -85,12 +85,6 @@ type TriageRule = {
   holdForHuman: boolean | undefined;
 };
 
-type MatchingRule = {
-  matchLabels: string[] | undefined;
-  matchStatuses: string[] | undefined;
-  matchListIds: string[] | undefined;
-};
-
 function normalizeKey(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -199,64 +193,6 @@ function priorityBucketScore(bucket: PriorityBucket | undefined): number {
     default:
       return 0;
   }
-}
-
-function averageDurationMs(samples: number[]): number {
-  const validSamples = samples.filter((sample) => Number.isFinite(sample) && sample >= 0);
-  if (validSamples.length === 0) {
-    return 0;
-  }
-
-  return Math.round(validSamples.reduce((sum, sample) => sum + sample, 0) / validSamples.length);
-}
-
-function classifyBlockedCategory(job: Pick<JobRecord, "lastError" | "triageReason" | "deadLetterReason" | "terminalContext">): string {
-  const text = [
-    job.deadLetterReason,
-    job.lastError,
-    job.triageReason,
-    job.terminalContext?.blockerContext,
-  ]
-    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    .join(" ")
-    .toLowerCase();
-
-  if (
-    text.includes("access") ||
-    text.includes("permission") ||
-    text.includes("credential") ||
-    text.includes("auth") ||
-    text.includes("token")
-  ) {
-    return "access";
-  }
-
-  if (
-    text.includes("dependency") ||
-    text.includes("blocked by") ||
-    text.includes("waiting on") ||
-    text.includes("external") ||
-    text.includes("upstream")
-  ) {
-    return "dependency";
-  }
-
-  if (
-    text.includes("environment") ||
-    text.includes("deploy") ||
-    text.includes("staging") ||
-    text.includes("infra") ||
-    text.includes("gateway") ||
-    text.includes("timeout")
-  ) {
-    return "environment";
-  }
-
-  if (text.includes("review") || text.includes("approval") || text.includes("clarification")) {
-    return "review";
-  }
-
-  return "unknown";
 }
 
 function normalizeStatus(status: string | undefined): string {
@@ -442,7 +378,38 @@ function resolveTriageRule(
   },
   triageRules: Record<string, TriageRule>,
 ): { projectKey: string | undefined; rule: TriageRule | undefined } {
-  return resolveBestMatchingRule(input, triageRules);
+  const normalizedProjectKey = input.projectKey === undefined ? undefined : normalizeKey(input.projectKey);
+  const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
+  const normalizedStatus = normalizeStatus(input.status);
+  const normalizedTags = normalizeTags(input.tags);
+  const entries = Object.entries(triageRules);
+
+  if (normalizedProjectKey !== undefined) {
+    const directRule = entries.find(([key]) => normalizeKey(key) === normalizedProjectKey);
+    if (directRule !== undefined) {
+      return { projectKey: directRule[0], rule: directRule[1] };
+    }
+  }
+
+  const matched = entries.find(([key, rule]) => {
+    const normalizedKey = normalizeKey(key);
+    const matchLabels = rule.matchLabels?.map(normalizeKey) ?? [];
+    const matchStatuses = rule.matchStatuses?.map(normalizeKey) ?? [];
+    const matchListIds = rule.matchListIds?.map(normalizeKey) ?? [];
+
+    return (
+      normalizedProjectKey === normalizedKey ||
+      (normalizedListId !== undefined && matchListIds.includes(normalizedListId)) ||
+      (normalizedStatus.length > 0 && matchStatuses.includes(normalizedStatus)) ||
+      normalizedTags.some((tag) => matchLabels.includes(tag))
+    );
+  });
+
+  if (matched !== undefined) {
+    return { projectKey: matched[0], rule: matched[1] };
+  }
+
+  return { projectKey: input.projectKey, rule: undefined };
 }
 
 function findTemplateByTagMatch(
@@ -527,73 +494,6 @@ function parseProjectRoutingRules(input: string | undefined): Record<string, Pro
   return rules;
 }
 
-function ruleMatchScore(input: {
-  projectKey?: string | undefined;
-  listId?: string | undefined;
-  status?: string | undefined;
-  tags: string[];
-}, rule: MatchingRule): number {
-  const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
-  const normalizedStatus = normalizeStatus(input.status);
-  const normalizedTags = normalizeTags(input.tags);
-  let score = 0;
-
-  if (normalizedListId !== undefined && (rule.matchListIds?.map(normalizeKey).includes(normalizedListId) ?? false)) {
-    score += 100;
-  }
-
-  if (normalizedStatus.length > 0 && (rule.matchStatuses?.map(normalizeKey).includes(normalizedStatus) ?? false)) {
-    score += 10;
-  }
-
-  const tagMatches = normalizedTags.filter((tag) => (rule.matchLabels?.map(normalizeKey).includes(tag) ?? false));
-  score += tagMatches.length;
-
-  return score;
-}
-
-function resolveBestMatchingRule<R extends MatchingRule>(
-  input: {
-    projectKey?: string | undefined;
-    listId?: string | undefined;
-    status?: string | undefined;
-    tags: string[];
-  },
-  rules: Record<string, R>,
-): { projectKey: string | undefined; rule: R | undefined } {
-  const normalizedProjectKey = input.projectKey === undefined ? undefined : normalizeKey(input.projectKey);
-  const entries = Object.entries(rules);
-
-  if (normalizedProjectKey !== undefined) {
-    const directRule = entries.find(([key]) => normalizeKey(key) === normalizedProjectKey);
-    if (directRule !== undefined) {
-      return { projectKey: directRule[0], rule: directRule[1] };
-    }
-  }
-
-  let bestMatch: { projectKey: string; rule: R; score: number } | undefined;
-  for (const [projectKey, rule] of entries) {
-    const score = ruleMatchScore(input, rule);
-    if (score <= 0) {
-      continue;
-    }
-
-    if (
-      bestMatch === undefined ||
-      score > bestMatch.score ||
-      (score === bestMatch.score && normalizeKey(projectKey) < normalizeKey(bestMatch.projectKey))
-    ) {
-      bestMatch = { projectKey, rule, score };
-    }
-  }
-
-  if (bestMatch !== undefined) {
-    return { projectKey: bestMatch.projectKey, rule: bestMatch.rule };
-  }
-
-  return { projectKey: input.projectKey, rule: undefined };
-}
-
 function resolveRoutingRule(
   input: {
     projectKey?: string | undefined;
@@ -603,7 +503,39 @@ function resolveRoutingRule(
   },
   routingRules: Record<string, ProjectRoutingRule>,
 ): { projectKey: string | undefined; rule: ProjectRoutingRule | undefined } {
-  return resolveBestMatchingRule(input, routingRules);
+  const normalizedProjectKey = input.projectKey === undefined ? undefined : normalizeKey(input.projectKey);
+  const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
+  const normalizedStatus = normalizeStatus(input.status);
+  const normalizedTags = normalizeTags(input.tags);
+
+  const entries = Object.entries(routingRules);
+
+  if (normalizedProjectKey !== undefined) {
+    const directRule = entries.find(([key]) => normalizeKey(key) === normalizedProjectKey);
+    if (directRule !== undefined) {
+      return { projectKey: directRule[0], rule: directRule[1] };
+    }
+  }
+
+  const matched = entries.find(([key, rule]) => {
+    const normalizedKey = normalizeKey(key);
+    const matchLabels = rule.matchLabels?.map(normalizeKey) ?? [];
+    const matchStatuses = rule.matchStatuses?.map(normalizeKey) ?? [];
+    const matchListIds = rule.matchListIds?.map(normalizeKey) ?? [];
+
+    return (
+      normalizedProjectKey === normalizedKey ||
+      (normalizedListId !== undefined && matchListIds.includes(normalizedListId)) ||
+      (normalizedStatus.length > 0 && matchStatuses.includes(normalizedStatus)) ||
+      normalizedTags.some((tag) => matchLabels.includes(tag))
+    );
+  });
+
+  if (matched !== undefined) {
+    return { projectKey: matched[0], rule: matched[1] };
+  }
+
+  return { projectKey: input.projectKey, rule: undefined };
 }
 
 function shouldAutoPickTask(input: {
@@ -1336,49 +1268,11 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     ].filter((label): label is string => label !== undefined);
   }
 
-  function resolveWorkboardLinks(task: ClickUpTask, routingRule: ProjectRoutingRule | undefined): ArtifactLinks {
-    const next: ArtifactLinks = {};
-    const resolvedRepoUrl = task.repoUrl ?? routingRule?.repoUrl ?? repoUrl;
-    const resolvedPrUrl = task.prUrl ?? routingRule?.prUrl ?? prUrl;
-    const resolvedArtifactUrl = task.artifactUrl ?? routingRule?.artifactUrl ?? artifactUrl;
-    const resolvedDocsUrl = task.docsUrl ?? routingRule?.docsUrl ?? docsUrl;
-    const resolvedDesignUrl = task.designUrl ?? routingRule?.designUrl ?? designUrl;
-
-    if (resolvedRepoUrl !== undefined) {
-      next.repoUrl = resolvedRepoUrl;
-    }
-    if (resolvedPrUrl !== undefined) {
-      next.prUrl = resolvedPrUrl;
-    }
-    if (resolvedArtifactUrl !== undefined) {
-      next.artifactUrl = resolvedArtifactUrl;
-    }
-    if (resolvedDocsUrl !== undefined) {
-      next.docsUrl = resolvedDocsUrl;
-    }
-    if (resolvedDesignUrl !== undefined) {
-      next.designUrl = resolvedDesignUrl;
-    }
-
-    return next;
-  }
-
   function buildBridgeToWorkboardCard(taskId: string): BridgeToWorkboardCard {
     const job = state.getJob(taskId);
     if (job === undefined) {
       throw new Error(`Unknown task ${taskId}`);
     }
-
-    const routing = resolveRoutingRule(
-      {
-        projectKey: job.task.projectKey ?? job.task.routingKey ?? defaultProjectKey,
-        listId: job.task.listId,
-        status: job.task.status,
-        tags: job.task.tags ?? [],
-      },
-      projectRoutingRules,
-    );
-    const links = resolveWorkboardLinks(job.task, routing.rule);
 
     const payload = bridgeToWorkboardCardSchema.parse({
       card: {
@@ -1405,11 +1299,11 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         approvalRequired: job.task.approvalRequired,
         priorityBucket: job.task.priorityBucket,
         tags: job.task.tags,
-        repoUrl: links.repoUrl,
-        prUrl: links.prUrl,
-        artifactUrl: links.artifactUrl,
-        docsUrl: links.docsUrl,
-        designUrl: links.designUrl,
+        repoUrl: job.task.repoUrl,
+        prUrl: job.task.prUrl,
+        artifactUrl: job.task.artifactUrl,
+        docsUrl: job.task.docsUrl,
+        designUrl: job.task.designUrl,
       },
     });
 
@@ -2319,7 +2213,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       workflowTemplateLabel !== undefined && decompositionSteps.length > 0
         ? renderDecompositionPlan(workflowTemplateLabel, decompositionSteps)
         : undefined;
-    const links = resolveWorkboardLinks(input.task, routing.rule);
     const triageReason =
       triage.rule?.reason ??
       (triage.rule !== undefined
@@ -2356,16 +2249,16 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         autoPicked,
         priority: input.task.priority,
         description: input.task.description,
-        repoUrl: links.repoUrl,
-        prUrl: links.prUrl,
+        repoUrl: input.task.repoUrl ?? repoUrl,
+        prUrl: input.task.prUrl ?? prUrl,
         branchName: input.task.branchName,
         commitSha: input.task.commitSha,
         commitUrl: input.task.commitUrl,
         prNumber: input.task.prNumber,
         updatedAt: input.task.updatedAt,
-        artifactUrl: links.artifactUrl,
-        docsUrl: links.docsUrl,
-        designUrl: links.designUrl,
+        artifactUrl: input.task.artifactUrl ?? artifactUrl,
+        docsUrl: input.task.docsUrl ?? docsUrl,
+        designUrl: input.task.designUrl ?? designUrl,
         triageReason,
         tags: mergedTags,
       },
@@ -2578,25 +2471,11 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       return counts;
     }, {});
 
-    const routingKeyCounts = jobs.reduce<Record<string, number>>((counts, job) => {
-      const routingKey = job.task.routingKey ?? "unclassified";
-      counts[routingKey] = (counts[routingKey] ?? 0) + 1;
-      return counts;
-    }, {});
-
     const priorityBucketCounts = jobs.reduce<Record<string, number>>((counts, job) => {
       const priorityBucket = job.task.priorityBucket ?? "unclassified";
       counts[priorityBucket] = (counts[priorityBucket] ?? 0) + 1;
       return counts;
     }, {});
-
-    const blockedCategoryCounts = jobs
-      .filter((job) => job.outcome === "blocked")
-      .reduce<Record<string, number>>((counts, job) => {
-        const category = classifyBlockedCategory(job);
-        counts[category] = (counts[category] ?? 0) + 1;
-        return counts;
-      }, {});
 
     const autoPickedJobs = jobs.filter((job) => job.task.autoPicked === true).length;
     const approvalRequiredJobs = jobs.filter((job) => job.task.approvalRequired === true).length;
@@ -2606,24 +2485,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     const deadLetteredJobs = jobs.filter((job) => job.outcome === "deadLettered").length;
     const handoffFailures = jobs.filter((job) => job.outcome === "failed" && job.dispatchedAt === undefined).length;
     const dispatchFailures = jobs.filter((job) => job.outcome === "failed" && job.dispatchedAt !== undefined).length;
-    const queueWaitMs = averageDurationMs(
-      jobs.map((job) => {
-        if (job.handedOffAt === undefined || job.dispatchedAt === undefined) {
-          return NaN;
-        }
-
-        return Date.parse(job.dispatchedAt) - Date.parse(job.handedOffAt);
-      }),
-    );
-    const runningDurationMs = averageDurationMs(
-      jobs.map((job) => {
-        if (job.dispatchedAt === undefined || job.terminalAt === undefined) {
-          return NaN;
-        }
-
-        return Date.parse(job.terminalAt) - Date.parse(job.dispatchedAt);
-      }),
-    );
 
     return {
       now,
@@ -2636,9 +2497,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       cardLifecycleCounts,
       jobCounts,
       workTypeCounts,
-      routingKeyCounts,
       priorityBucketCounts,
-      blockedCategoryCounts,
       autoPickedJobs,
       approvalRequiredJobs,
       syncLagMs: oldestUnsyncedAgeMs,
@@ -2650,13 +2509,9 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         deadLetteredJobs,
         dispatchFailures,
         handoffFailures,
-        queueWaitMs,
-        runningDurationMs,
       },
       latency: {
         averageDispatchToTerminalMs,
-        averageQueueWaitMs: queueWaitMs,
-        averageRunningDurationMs: runningDurationMs,
         oldestUnsyncedAgeMs,
       },
       thresholds: {
@@ -2734,37 +2589,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       deadLettered: items.filter((job) => job.outcome === "deadLettered").length,
     }));
 
-    const byRoutingKey = Object.entries(
-      jobs.reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
-        const routingKey = job.task.routingKey ?? "unclassified";
-        groups[routingKey] = groups[routingKey] ?? [];
-        groups[routingKey].push(job);
-        return groups;
-      }, {}),
-    ).map(([routingKey, items]) => ({
-      routingKey,
-      total: items.length,
-      succeeded: items.filter((job) => job.outcome === "succeeded").length,
-      blocked: items.filter((job) => job.outcome === "blocked").length,
-      failed: items.filter((job) => job.outcome === "failed").length,
-      deadLettered: items.filter((job) => job.outcome === "deadLettered").length,
-    }));
-
-    const byBlockedCategory = Object.entries(
-      jobs
-        .filter((job) => job.outcome === "blocked")
-        .reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
-          const category = classifyBlockedCategory(job);
-          groups[category] = groups[category] ?? [];
-          groups[category].push(job);
-          return groups;
-        }, {}),
-    ).map(([category, items]) => ({
-      category,
-      total: items.length,
-      taskIds: items.map((job) => job.task.id),
-    }));
-
     const byPriorityBucket = Object.entries(
       jobs.reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
         const priorityBucket = job.task.priorityBucket ?? "unclassified";
@@ -2818,9 +2642,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         successRate: jobs.length === 0 ? 0 : Number((successfulJobs.length / jobs.length).toFixed(2)),
         byWorkType,
         byProject,
-        byRoutingKey,
         byPriorityBucket,
-        byBlockedCategory,
       },
     };
   }
