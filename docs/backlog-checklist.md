@@ -81,10 +81,32 @@ This is the living build checklist. Update it as we complete items and discover 
 ## Phase 5: Status Mapping and Contract Hardening
 
 - [x] Finalize the Bridge to Workboard card payload contract
+- [x] Freeze the required and optional fields in the payload schema
+  - Required: `title`, `notes`, `status`, `priority`, `labels`, `idempotencyKey`
+  - Metadata: `sourceSystem`, `clickupTaskId`, `clickupStatus`, `projectKey`, `workType`, `routingKey`, `automationAllowed`, `approvalRequired`, `priorityBucket`, `tags`, `repoUrl`, `prUrl`, `artifactUrl`, `docsUrl`, `designUrl`
+  - Add schema tests for missing, empty, and extra fields
 - [x] Finalize the Workboard to ClickUp status mapping table
+- [x] Lock the status-to-status and status-to-automation-state mapping
+  - `triage`, `backlog`, `todo`, `scheduled`, `ready` -> `ready for openclaw` + `candidate`
+  - `running` -> `in progress` + `running`
+  - `review` and `done` -> `human-review` + `done`
+  - `blocked` -> `blocked` + `blocked`
+  - Treat unsupported statuses as contract errors
 - [x] Define what Bridge writes into ClickUp custom fields such as `run_id`, `workboard_id`, and sync metadata
-- [ ] Define how retries behave for duplicate webhook delivery, CLI failure, and temporary Gateway unavailability
-- [ ] Define which terminal outcomes require human review versus blocked status
+  - On `running`, write `run_id`, `workboard_id`, `automation_state`, and `last_sync_at`
+  - On terminal sync, keep `run_id`, `workboard_id`, `automation_state`, and `last_sync_at` current
+  - On blocked sync, persist a short `last_error` or blocker note
+  - Overwrite values idempotently instead of appending duplicates
+- [x] Define how retries behave for duplicate webhook delivery, CLI failure, and temporary Gateway unavailability
+  - Duplicate webhook delivery should reuse the existing idempotency key and existing job/card mapping
+  - CLI failure should retry with backoff before escalating to a terminal failure state
+  - Temporary Gateway unavailability should reread existing card state and never create a second card
+  - Add tests for duplicate event, transient CLI failure, and gateway-recovery behavior
+- [x] Define which terminal outcomes require human review versus blocked status
+  - `review` and `done` stay on `human-review`
+  - Explicit dependency, access, or environment blockers map to `blocked`
+  - Ambiguous terminal payloads default to `human-review`, not `blocked`
+  - Add a decision matrix for `force-human-review` and `mark-blocked`
 
 ## Phase 6: Reliability
 

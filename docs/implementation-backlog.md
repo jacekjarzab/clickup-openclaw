@@ -76,10 +76,25 @@
 ## Phase 5: Status Mapping and Contract Hardening
 
 - Finalize the Bridge to Workboard card payload contract
+  - Freeze the required and optional fields in the schema
+  - Add contract tests for missing, empty, and extra fields
 - Finalize the Workboard to ClickUp status mapping table
+  - Lock the status-to-status and status-to-automation-state mapping
+  - Treat unsupported Workboard statuses as contract errors
 - Define what Bridge writes into ClickUp custom fields such as `run_id`, `workboard_id`, and sync metadata
+  - On `running`, write `run_id`, `workboard_id`, `automation_state`, and `last_sync_at`
+  - On terminal sync, keep `run_id`, `workboard_id`, `automation_state`, and `last_sync_at` current
+  - On blocked sync, persist a short `last_error` or blocker note
 - Define how retries behave for duplicate webhook delivery, CLI failure, and temporary Gateway unavailability
+  - Duplicate webhook delivery should reuse the existing idempotency key and existing job/card mapping
+  - CLI failure should retry with backoff before escalating to a terminal failure state
+  - Temporary Gateway unavailability should reread existing card state and never create a second card
+  - Add tests for duplicate event, transient CLI failure, and gateway-recovery behavior
 - Define which terminal outcomes require human review versus blocked status
+  - `review` and `done` stay on `human-review`
+  - Explicit dependency, access, or environment blockers map to `blocked`
+  - Ambiguous terminal payloads default to `human-review`, not `blocked`
+  - Add a decision matrix for `force-human-review` and `mark-blocked`
 
 ## Phase 6: Reliability
 

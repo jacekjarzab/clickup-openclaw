@@ -16,6 +16,12 @@ type CommandResult = {
   stderr: string;
 };
 
+type RetryOptions = {
+  attempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+};
+
 export type OpenClawCommandRunner = (
   command: string,
   args: string[],
@@ -42,6 +48,7 @@ export type OpenClawWorkboardAdapterOptions = {
   cwd?: string;
   runner?: OpenClawCommandRunner;
   timeoutMs?: number;
+  retry?: Partial<RetryOptions>;
 };
 
 function defaultRunner(
@@ -54,6 +61,10 @@ function defaultRunner(
     timeout: options.timeoutMs,
     maxBuffer: 1024 * 1024 * 8,
   });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseJsonObject(stdout: string): Record<string, unknown> {
@@ -262,12 +273,38 @@ export class OpenClawWorkboardAdapter {
 
   private readonly timeoutMs: number;
 
+  private readonly retry: RetryOptions;
+
   constructor(options: OpenClawWorkboardAdapterOptions = {}) {
     this.binary = options.binary ?? "openclaw";
     this.boardId = options.boardId;
     this.cwd = options.cwd;
     this.runner = options.runner ?? defaultRunner;
     this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.retry = {
+      attempts: Math.max(1, options.retry?.attempts ?? 3),
+      baseDelayMs: Math.max(0, options.retry?.baseDelayMs ?? 250),
+      maxDelayMs: Math.max(0, options.retry?.maxDelayMs ?? 2_000),
+    };
+  }
+
+  private async runWithRetry<T>(operation: string, fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; attempt <= this.retry.attempts; attempt += 1) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (attempt >= this.retry.attempts) {
+          throw error instanceof Error
+            ? error
+            : new Error(`Failed to ${operation} openclaw workboard`);
+        }
+
+        const delayMs = Math.min(this.retry.baseDelayMs * 2 ** (attempt - 1), this.retry.maxDelayMs);
+        await sleep(delayMs);
+      }
+    }
+
+    throw new Error(`Failed to ${operation} openclaw workboard`);
   }
 
   async createCard(input: BridgeToWorkboardCard): Promise<OpenClawWorkboardCardSummary> {
@@ -313,9 +350,15 @@ export class OpenClawWorkboardAdapter {
   }
 
   async showCard(id: string): Promise<OpenClawWorkboardCardSummary> {
-    const { stdout } = await this.runner(this.binary, ["workboard", "show", id, "--json"], buildRunnerOptions(this.cwd, this.timeoutMs));
-    const raw = parseJsonObject(stdout);
-    return toCardSummary(typeof raw.id === "string" ? raw.id : id, raw);
+    return this.runWithRetry(`show card ${id}`, async () => {
+      const { stdout } = await this.runner(
+        this.binary,
+        ["workboard", "show", id, "--json"],
+        buildRunnerOptions(this.cwd, this.timeoutMs),
+      );
+      const raw = parseJsonObject(stdout);
+      return toCardSummary(typeof raw.id === "string" ? raw.id : id, raw);
+    });
   }
 
   async listCards(input: {
@@ -331,20 +374,22 @@ export class OpenClawWorkboardAdapter {
       args.push("--status", input.status);
     }
 
-    const { stdout } = await this.runner(
-      this.binary,
-      args,
-      buildRunnerOptions(this.cwd, this.timeoutMs),
-    );
-    const parsed = JSON.parse(stdout) as unknown;
-    if (!Array.isArray(parsed)) {
-      throw new Error("Expected JSON array from openclaw workboard list");
-    }
+    return this.runWithRetry("list cards", async () => {
+      const { stdout } = await this.runner(
+        this.binary,
+        args,
+        buildRunnerOptions(this.cwd, this.timeoutMs),
+      );
+      const parsed = JSON.parse(stdout) as unknown;
+      if (!Array.isArray(parsed)) {
+        throw new Error("Expected JSON array from openclaw workboard list");
+      }
 
-    return parsed
-      .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
-      .map((raw) => toCardSummary(typeof raw.id === "string" ? raw.id : "", raw))
-      .filter((item) => item.id.length > 0);
+      return parsed
+        .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
+        .map((raw) => toCardSummary(typeof raw.id === "string" ? raw.id : "", raw))
+        .filter((item) => item.id.length > 0);
+    });
   }
 
   async dispatch(input: { boardId?: string; maxStarts?: number } = {}): Promise<OpenClawWorkboardDispatchResult> {
@@ -357,12 +402,14 @@ export class OpenClawWorkboardAdapter {
       args.push("--max-starts", String(input.maxStarts));
     }
 
-    const { stdout } = await this.runner(
-      this.binary,
-      args,
-      buildRunnerOptions(this.cwd, this.timeoutMs),
-    );
+    return this.runWithRetry("dispatch workboard", async () => {
+      const { stdout } = await this.runner(
+        this.binary,
+        args,
+        buildRunnerOptions(this.cwd, this.timeoutMs),
+      );
 
-    return parseJsonObject(stdout);
+      return parseJsonObject(stdout);
+    });
   }
 }

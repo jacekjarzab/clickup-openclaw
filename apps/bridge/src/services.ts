@@ -3,6 +3,8 @@ import { createLogger } from "@clickup-openclaw/observability";
 import {
   bridgeToWorkboardCardSchema,
   clickupAutomationStatusSchema,
+  isBlockedWorkboardStatus,
+  isHumanReviewWorkboardStatus,
   getWorkboardToClickUpStatusMapping,
   clickupWebhookEventSchema,
   type OpenClawTerminalContext,
@@ -1497,9 +1499,9 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         ? {
             terminalAt: updatedAt,
             outcome:
-              refreshed.status === "blocked"
+              isBlockedWorkboardStatus(refreshed.status)
                 ? "blocked"
-                : refreshed.status === "review" || refreshed.status === "done"
+                : isHumanReviewWorkboardStatus(refreshed.status)
                   ? "succeeded"
                   : next.outcome,
           }

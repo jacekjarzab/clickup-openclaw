@@ -68,6 +68,57 @@ test("OpenClawWorkboardAdapter createCard shells out with expected args", async 
   assert.ok(calls[0]?.args.includes("--json"));
 });
 
+test("OpenClawWorkboardAdapter createCard rejects unknown payload fields", async () => {
+  const adapter = new OpenClawWorkboardAdapter({
+    runner: async () => {
+      return {
+        stdout: JSON.stringify({ id: "card-1", status: "ready" }),
+        stderr: "",
+      };
+    },
+  });
+
+  await assert.rejects(
+    async () =>
+      adapter.createCard({
+        ...payload,
+        card: {
+          ...payload.card,
+          unexpected: "field",
+        } as never,
+      } as never),
+    /unrecognized key/i,
+  );
+});
+
+test("OpenClawWorkboardAdapter retries transient showCard failures", async () => {
+  let attempts = 0;
+  const adapter = new OpenClawWorkboardAdapter({
+    runner: async () => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        throw new Error("temporary gateway unavailable");
+      }
+
+      return {
+        stdout: JSON.stringify({
+          id: "card-terminal",
+          status: "blocked",
+          summary: "Workboard reported a blocker.",
+        }),
+        stderr: "",
+      };
+    },
+  });
+
+  const card = await adapter.showCard("card-terminal");
+
+  assert.equal(attempts, 2);
+  assert.equal(card.id, "card-terminal");
+  assert.equal(card.status, "blocked");
+});
+
 test("OpenClawWorkboardAdapter showCard extracts terminal context from payloads", async () => {
   const adapter = new OpenClawWorkboardAdapter({
     runner: async () => {

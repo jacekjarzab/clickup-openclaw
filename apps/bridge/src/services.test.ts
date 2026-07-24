@@ -136,6 +136,35 @@ test("ingestWebhook automatically creates and dispatches eligible cards once", a
   assert.equal(services.state.getJob("task-1")?.bridgeState, "dispatched");
 });
 
+test("ingestWebhook ignores duplicate webhook deliveries with the same idempotency key", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  const first = await services.ingestWebhook({
+    event: "taskUpdated",
+    taskId: "task-dup",
+    status: "ready for openclaw",
+    updatedAt: "2026-07-23T10:00:00.000Z",
+  });
+
+  const second = await services.ingestWebhook({
+    event: "taskUpdated",
+    taskId: "task-dup",
+    status: "ready for openclaw",
+    updatedAt: "2026-07-23T10:00:00.000Z",
+  });
+
+  assert.deepEqual(first, { accepted: true, duplicate: false });
+  assert.deepEqual(second, { accepted: true, duplicate: true });
+  assert.equal(adapter.created.length, 1);
+  assert.equal(adapter.dispatched.length, 1);
+  assert.equal(services.state.getJob("task-dup")?.workboardCardId, "card-1");
+});
+
 test("dispatchOpenClawWorkboard only advances queued cards", async () => {
   const state = new InMemoryStateStore();
   const adapter = new FakeOpenClawWorkboardAdapter();

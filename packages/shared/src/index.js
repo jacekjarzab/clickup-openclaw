@@ -33,6 +33,14 @@ export const openClawWorkboardCardStatuses = [
     "done",
 ];
 export const openClawWorkboardCardStatusSchema = z.enum(openClawWorkboardCardStatuses);
+export const openClawTerminalWorkboardCardStatuses = ["review", "done", "blocked"];
+export const openClawTerminalWorkboardCardStatusSchema = z.enum(openClawTerminalWorkboardCardStatuses);
+export function isHumanReviewWorkboardStatus(status) {
+    return status === "review" || status === "done";
+}
+export function isBlockedWorkboardStatus(status) {
+    return status === "blocked";
+}
 export const bridgeJobStates = [
     "received",
     "deduplicated",
@@ -104,7 +112,7 @@ export const workboardCardCreateSchema = z.object({
     agentId: z.string().min(1).optional(),
     boardId: z.string().min(1).optional(),
     idempotencyKey: z.string().min(1),
-});
+}).strict();
 export const workboardCardMetadataSchema = z.object({
     sourceSystem: z.literal("clickup"),
     clickupTaskId: z.string().min(1),
@@ -121,18 +129,18 @@ export const workboardCardMetadataSchema = z.object({
     artifactUrl: z.string().min(1).optional(),
     docsUrl: z.string().min(1).optional(),
     designUrl: z.string().min(1).optional(),
-});
+}).strict();
 export const bridgeToWorkboardCardSchema = z.object({
     card: workboardCardCreateSchema,
     metadata: workboardCardMetadataSchema,
-});
+}).strict();
 export const workboardToClickUpStatusMappingSchema = z.object({
     workboardStatus: openClawWorkboardCardStatusSchema,
     clickupStatus: clickupAutomationStatusSchema,
     automationState: automationStateSchema,
     isTerminal: z.boolean(),
     syncComment: z.boolean(),
-});
+}).strict();
 export const workboardToClickUpStatusMappings = [
     {
         workboardStatus: "triage",

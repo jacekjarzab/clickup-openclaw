@@ -50,6 +50,25 @@ export type OpenClawWorkboardCardStatus = (typeof openClawWorkboardCardStatuses)
 
 export const openClawWorkboardCardStatusSchema = z.enum(openClawWorkboardCardStatuses);
 
+export const openClawTerminalWorkboardCardStatuses = ["review", "done", "blocked"] as const;
+
+export type OpenClawTerminalWorkboardCardStatus =
+  (typeof openClawTerminalWorkboardCardStatuses)[number];
+
+export const openClawTerminalWorkboardCardStatusSchema = z.enum(
+  openClawTerminalWorkboardCardStatuses,
+);
+
+export function isHumanReviewWorkboardStatus(
+  status: OpenClawWorkboardCardStatus,
+): status is "review" | "done" {
+  return status === "review" || status === "done";
+}
+
+export function isBlockedWorkboardStatus(status: OpenClawWorkboardCardStatus): status is "blocked" {
+  return status === "blocked";
+}
+
 export type OpenClawTerminalContext = {
   summary?: string | undefined;
   proof?: unknown;
@@ -146,7 +165,7 @@ export const workboardCardCreateSchema = z.object({
   agentId: z.string().min(1).optional(),
   boardId: z.string().min(1).optional(),
   idempotencyKey: z.string().min(1),
-});
+}).strict();
 
 export type WorkboardCardCreate = z.infer<typeof workboardCardCreateSchema>;
 
@@ -166,14 +185,14 @@ export const workboardCardMetadataSchema = z.object({
   artifactUrl: z.string().min(1).optional(),
   docsUrl: z.string().min(1).optional(),
   designUrl: z.string().min(1).optional(),
-});
+}).strict();
 
 export type WorkboardCardMetadata = z.infer<typeof workboardCardMetadataSchema>;
 
 export const bridgeToWorkboardCardSchema = z.object({
   card: workboardCardCreateSchema,
   metadata: workboardCardMetadataSchema,
-});
+}).strict();
 
 export type BridgeToWorkboardCard = z.infer<typeof bridgeToWorkboardCardSchema>;
 
@@ -183,7 +202,7 @@ export const workboardToClickUpStatusMappingSchema = z.object({
   automationState: automationStateSchema,
   isTerminal: z.boolean(),
   syncComment: z.boolean(),
-});
+}).strict();
 
 export type WorkboardToClickUpStatusMapping = z.infer<typeof workboardToClickUpStatusMappingSchema>;
 
