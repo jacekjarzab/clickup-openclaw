@@ -2787,6 +2787,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
 
     return {
       now,
+      transport: openClawWorkboard.getTransportSnapshot(),
       queueHealth: {
         cardsQueued: metrics.cardsQueued,
         cardsCreated: metrics.cardsCreated,

@@ -35,6 +35,28 @@ export type OpenClawWorkboardDispatchResult = {
   [key: string]: unknown;
 };
 
+export type OpenClawTransportOperationName = "createCard" | "showCard" | "listCards" | "dispatch";
+
+export type OpenClawTransportOperationSnapshot = {
+  calls: number;
+  failures: number;
+  lastError?: string | undefined;
+  retries: number;
+  averageDurationMs: number;
+};
+
+export type OpenClawTransportSnapshot = {
+  mode: "cli";
+  binary: string;
+  boardId: string | undefined;
+  operations: Record<OpenClawTransportOperationName, OpenClawTransportOperationSnapshot>;
+  recentFailures: Array<{
+    at: string;
+    error: string;
+    operation: OpenClawTransportOperationName;
+  }>;
+};
+
 export type OpenClawWorkboardCardSummary = {
   id: string;
   status?: OpenClawWorkboardCardStatus | undefined;
@@ -305,6 +327,23 @@ export class OpenClawWorkboardAdapter {
 
   private readonly retry: RetryOptions;
 
+  private readonly transportStats: Record<
+    OpenClawTransportOperationName,
+    {
+      calls: number;
+      failures: number;
+      lastError: string | undefined;
+      retries: number;
+      totalDurationMs: number;
+    }
+  >;
+
+  private readonly recentFailures: Array<{
+    at: string;
+    error: string;
+    operation: OpenClawTransportOperationName;
+  }>;
+
   constructor(options: OpenClawWorkboardAdapterOptions = {}) {
     this.binary = options.binary ?? "openclaw";
     this.boardId = options.boardId;
@@ -316,29 +355,72 @@ export class OpenClawWorkboardAdapter {
       baseDelayMs: Math.max(0, options.retry?.baseDelayMs ?? 250),
       maxDelayMs: Math.max(0, options.retry?.maxDelayMs ?? 2_000),
     };
+    this.transportStats = {
+      createCard: { calls: 0, failures: 0, lastError: undefined, retries: 0, totalDurationMs: 0 },
+      showCard: { calls: 0, failures: 0, lastError: undefined, retries: 0, totalDurationMs: 0 },
+      listCards: { calls: 0, failures: 0, lastError: undefined, retries: 0, totalDurationMs: 0 },
+      dispatch: { calls: 0, failures: 0, lastError: undefined, retries: 0, totalDurationMs: 0 },
+    };
+    this.recentFailures = [];
   }
 
-  private async runWithRetry<T>(operation: string, fn: () => Promise<T>): Promise<T> {
-    for (let attempt = 1; attempt <= this.retry.attempts; attempt += 1) {
+  private recordTransportOutcome(
+    operation: OpenClawTransportOperationName,
+    durationMs: number,
+    attempts: number,
+    error?: string | undefined,
+  ): void {
+    const stats = this.transportStats[operation];
+    stats.calls += 1;
+    stats.totalDurationMs += durationMs;
+    stats.retries += Math.max(0, attempts - 1);
+
+    if (error === undefined) {
+      return;
+    }
+
+    stats.failures += 1;
+    stats.lastError = error;
+    this.recentFailures.unshift({
+      at: new Date().toISOString(),
+      error,
+      operation,
+    });
+    this.recentFailures.length = Math.min(this.recentFailures.length, 10);
+  }
+
+  private async runWithRetry<T>(
+    operation: OpenClawTransportOperationName,
+    label: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const startedAt = Date.now();
+    let attempts = 0;
+
+    for (; attempts < this.retry.attempts; attempts += 1) {
       try {
-        return await fn();
+        const result = await fn();
+        this.recordTransportOutcome(operation, Date.now() - startedAt, attempts + 1);
+        return result;
       } catch (error) {
-        if (!isRetriableOpenClawError(error) || attempt >= this.retry.attempts) {
+        if (!isRetriableOpenClawError(error) || attempts + 1 >= this.retry.attempts) {
+          const failureMessage = error instanceof Error ? error.message : String(error);
+          this.recordTransportOutcome(operation, Date.now() - startedAt, attempts + 1, failureMessage);
           throw error instanceof Error
             ? error
-            : new Error(`Failed to ${operation} openclaw workboard`);
+            : new Error(`Failed to ${label} openclaw workboard`);
         }
 
-        const delayMs = Math.min(this.retry.baseDelayMs * 2 ** (attempt - 1), this.retry.maxDelayMs);
+        const delayMs = Math.min(this.retry.baseDelayMs * 2 ** attempts, this.retry.maxDelayMs);
         await sleep(delayMs);
       }
     }
 
-    throw new Error(`Failed to ${operation} openclaw workboard`);
+    throw new Error(`Failed to ${label} openclaw workboard`);
   }
 
   async createCard(input: BridgeToWorkboardCard): Promise<OpenClawWorkboardCardSummary> {
-    return this.runWithRetry("create card", async () => {
+    return this.runWithRetry("createCard", "create card", async () => {
       const payload = bridgeToWorkboardCardSchema.parse(input);
       const args = [
         "workboard",
@@ -382,7 +464,7 @@ export class OpenClawWorkboardAdapter {
   }
 
   async showCard(id: string): Promise<OpenClawWorkboardCardSummary> {
-    return this.runWithRetry(`show card ${id}`, async () => {
+    return this.runWithRetry("showCard", `show card ${id}`, async () => {
       const { stdout } = await this.runner(
         this.binary,
         ["workboard", "show", id, "--json"],
@@ -406,7 +488,7 @@ export class OpenClawWorkboardAdapter {
       args.push("--status", input.status);
     }
 
-    return this.runWithRetry("list cards", async () => {
+    return this.runWithRetry("listCards", "list cards", async () => {
       const { stdout } = await this.runner(
         this.binary,
         args,
@@ -434,7 +516,7 @@ export class OpenClawWorkboardAdapter {
       args.push("--max-starts", String(input.maxStarts));
     }
 
-    return this.runWithRetry("dispatch workboard", async () => {
+    return this.runWithRetry("dispatch", "dispatch workboard", async () => {
       const { stdout } = await this.runner(
         this.binary,
         args,
@@ -443,5 +525,30 @@ export class OpenClawWorkboardAdapter {
 
       return parseJsonObject(stdout);
     });
+  }
+
+  getTransportSnapshot(): OpenClawTransportSnapshot {
+    const operations = Object.fromEntries(
+      (Object.entries(this.transportStats) as Array<
+        [OpenClawTransportOperationName, (typeof this.transportStats)[OpenClawTransportOperationName]]
+      >).map(([operation, stats]) => [
+        operation,
+        {
+          calls: stats.calls,
+          failures: stats.failures,
+          lastError: stats.lastError,
+          retries: stats.retries,
+          averageDurationMs: stats.calls === 0 ? 0 : Math.round(stats.totalDurationMs / stats.calls),
+        },
+      ]),
+    ) as Record<OpenClawTransportOperationName, OpenClawTransportOperationSnapshot>;
+
+    return {
+      mode: "cli",
+      binary: this.binary,
+      boardId: this.boardId,
+      operations,
+      recentFailures: this.recentFailures.slice(),
+    };
   }
 }

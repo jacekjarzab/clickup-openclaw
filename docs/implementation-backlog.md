@@ -113,7 +113,7 @@
   - Detect cards with missing or stale `run_id`, `workboard_id`, or `last_sync_at`
   - Trigger reread and reconciliation before creating or dispatching anything new
   - Add tests for stale-card detection and interrupted-run recovery
-- Add visibility into dispatch failures, queue stalls, and sync lag
+- Implemented: visibility into dispatch failures, queue stalls, and sync lag is now covered by the dashboard and metric slices
 - Add restart-safe reconciliation so Bridge can resume after crashes without duplicate card creation
   - Reload persisted Bridge state on startup
   - Re-read Workboard state for every mapped card before resuming dispatch or sync
@@ -164,8 +164,11 @@
   - Track handoff-to-running, running-to-terminal, and queue wait times
   - Break blocked outcomes into actionable categories
 - Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
+  - Measure the current CLI baseline for create, show, list, and dispatch operations
+  - Define the transport contract the Bridge would need from a WebSocket client
   - Compare latency, reconnect behavior, and operator overhead against the CLI path
   - Document the criteria that would justify adoption
+  - Implemented: the CLI adapter now emits transport timing and failure telemetry for baseline comparison
 
 ## Recommended First Build Order
 

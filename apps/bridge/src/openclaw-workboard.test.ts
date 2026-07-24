@@ -143,6 +143,54 @@ test("OpenClawWorkboardAdapter retries transient createCard failures", async () 
   assert.equal(created.status, "ready");
 });
 
+test("OpenClawWorkboardAdapter records transport telemetry", async () => {
+  const adapter = new OpenClawWorkboardAdapter({
+    runner: async (_command, args) => {
+      const operation = args[1];
+
+      if (operation === "create") {
+        return {
+          stdout: JSON.stringify({ id: "card-1", status: "ready" }),
+          stderr: "",
+        };
+      }
+
+      if (operation === "show") {
+        return {
+          stdout: JSON.stringify({ id: "card-1", status: "running" }),
+          stderr: "",
+        };
+      }
+
+      if (operation === "list") {
+        return {
+          stdout: JSON.stringify([{ id: "card-1", status: "ready" }]),
+          stderr: "",
+        };
+      }
+
+      return {
+        stdout: JSON.stringify({ started: 1 }),
+        stderr: "",
+      };
+    },
+  });
+
+  await adapter.createCard(payload);
+  await adapter.showCard("card-1");
+  await adapter.listCards();
+  await adapter.dispatch();
+
+  const snapshot = adapter.getTransportSnapshot();
+
+  assert.equal(snapshot.mode, "cli");
+  assert.equal(snapshot.operations.createCard.calls, 1);
+  assert.equal(snapshot.operations.showCard.calls, 1);
+  assert.equal(snapshot.operations.listCards.calls, 1);
+  assert.equal(snapshot.operations.dispatch.calls, 1);
+  assert.equal(snapshot.recentFailures.length, 0);
+});
+
 test("OpenClawWorkboardAdapter showCard extracts terminal context from payloads", async () => {
   const adapter = new OpenClawWorkboardAdapter({
     runner: async () => {
