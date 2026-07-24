@@ -84,6 +84,8 @@ async function main(): Promise<void> {
   app.get("/dashboards/queue-health", async () => services.getDashboardSnapshot().queueHealth);
   app.get("/dashboards/completion-rates", async () => services.getDashboardSnapshot().completionRates);
 
+  await services.reconcilePersistedState();
+
   const port = Number(config.PORT);
   await app.listen({ host: config.HOST, port });
   services.logger.info("bridge started", { host: config.HOST, port });

@@ -119,6 +119,30 @@ test("OpenClawWorkboardAdapter retries transient showCard failures", async () =>
   assert.equal(card.status, "blocked");
 });
 
+test("OpenClawWorkboardAdapter retries transient createCard failures", async () => {
+  let attempts = 0;
+  const adapter = new OpenClawWorkboardAdapter({
+    runner: async () => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        throw new Error("temporary gateway unavailable");
+      }
+
+      return {
+        stdout: JSON.stringify({ id: "card-1", status: "ready" }),
+        stderr: "",
+      };
+    },
+  });
+
+  const created = await adapter.createCard(payload);
+
+  assert.equal(attempts, 2);
+  assert.equal(created.id, "card-1");
+  assert.equal(created.status, "ready");
+});
+
 test("OpenClawWorkboardAdapter showCard extracts terminal context from payloads", async () => {
   const adapter = new OpenClawWorkboardAdapter({
     runner: async () => {
