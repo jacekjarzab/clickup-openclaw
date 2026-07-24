@@ -135,6 +135,25 @@ function buildClickUpConfig(overrides: Record<string, string> = {}) {
   });
 }
 
+function buildPhase8Config() {
+  return loadConfig({
+    PORT: "8787",
+    HOST: "127.0.0.1",
+    PROJECT_ROUTING_JSON: JSON.stringify({
+      acme: {
+        matchListIds: ["list-acme"],
+        matchLabels: ["vip"],
+        repoUrl: "https://example.com/acme",
+        docsUrl: "https://example.com/acme/docs",
+      },
+      backlog: {
+        matchStatuses: ["ready for openclaw"],
+        repoUrl: "https://example.com/generic",
+      },
+    }),
+  });
+}
+
 function buildSeedTask(id: string): ClickUpTask {
   return {
     id,
@@ -144,8 +163,17 @@ function buildSeedTask(id: string): ClickUpTask {
   };
 }
 
-function buildJobRecord(taskId: string, overrides: Partial<JobRecord> = {}): JobRecord {
-  const task = overrides.task ?? buildSeedTask(taskId);
+function buildJobRecord(
+  taskId: string,
+  overrides: Partial<Omit<JobRecord, "task">> & {
+    task?: Partial<ClickUpTask> | undefined;
+  } = {},
+): JobRecord {
+  const { task: taskOverrides, ...jobOverrides } = overrides;
+  const task = {
+    ...buildSeedTask(taskId),
+    ...(taskOverrides ?? {}),
+  };
   return {
     task,
     state: "eligible",
@@ -175,7 +203,7 @@ function buildJobRecord(taskId: string, overrides: Partial<JobRecord> = {}): Job
     outcome: undefined,
     deadLetteredAt: undefined,
     deadLetterReason: undefined,
-    ...overrides,
+    ...jobOverrides,
   };
 }
 
@@ -241,6 +269,128 @@ test("ingestWebhook ignores duplicate webhook deliveries with the same idempoten
   assert.equal(adapter.created.length, 1);
   assert.equal(adapter.dispatched.length, 1);
   assert.equal(services.state.getJob("task-dup")?.workboardCardId, "card-1");
+});
+
+test("ingestWebhook prefers the most specific project routing rule", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  const services = createBridgeServices(buildPhase8Config(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  const result = await services.ingestWebhook({
+    event: "taskUpdated",
+    taskId: "task-routing",
+    listId: "list-acme",
+    status: "ready for openclaw",
+    updatedAt: "2026-07-23T10:00:00.000Z",
+    payload: {
+      labels: ["vip"],
+    },
+  });
+
+  assert.deepEqual(result, { accepted: true, duplicate: false });
+  assert.equal(adapter.created.length, 1);
+  assert.equal(adapter.created[0]?.metadata.projectKey, "acme");
+  assert.equal(adapter.created[0]?.metadata.routingKey, "acme");
+  assert.deepEqual(adapter.created[0]?.card.labels.slice(0, 4), [
+    "clickup",
+    "automation",
+    "project:acme",
+    "route:acme",
+  ]);
+  assert.ok(adapter.created[0]?.card.labels.includes("tag:vip"));
+  assert.equal(adapter.created[0]?.metadata.repoUrl, "https://example.com/acme");
+  assert.equal(adapter.created[0]?.metadata.docsUrl, "https://example.com/acme/docs");
+});
+
+test("dashboard snapshot reports routing throughput and blocked categories", () => {
+  const state = new InMemoryStateStore();
+  state.upsertJob(
+    buildJobRecord("task-success", {
+      task: {
+        projectKey: "acme",
+        routingKey: "acme",
+        priorityBucket: "high",
+      },
+      state: "normalized",
+      bridgeState: "synced_back",
+      workboardCardId: "card-success",
+      openClawCardStatus: "done",
+      handedOffAt: "2026-07-23T10:00:00.000Z",
+      dispatchedAt: "2026-07-23T10:05:00.000Z",
+      terminalAt: "2026-07-23T10:20:00.000Z",
+      outcome: "succeeded",
+      lastEventAt: "2026-07-23T10:20:00.000Z",
+      updatedAt: "2026-07-23T10:20:00.000Z",
+    }),
+  );
+  state.upsertJob(
+    buildJobRecord("task-blocked-access", {
+      task: {
+        projectKey: "acme",
+        routingKey: "acme",
+      },
+      state: "normalized",
+      bridgeState: "synced_back",
+      workboardCardId: "card-blocked-access",
+      openClawCardStatus: "blocked",
+      handedOffAt: "2026-07-23T11:00:00.000Z",
+      dispatchedAt: "2026-07-23T11:10:00.000Z",
+      terminalAt: "2026-07-23T11:25:00.000Z",
+      outcome: "blocked",
+      lastError: "Waiting on staging access",
+      terminalContext: {
+        blockerContext: "Waiting on staging access",
+      },
+      blockedAt: "2026-07-23T11:25:00.000Z",
+      lastEventAt: "2026-07-23T11:25:00.000Z",
+      updatedAt: "2026-07-23T11:25:00.000Z",
+    }),
+  );
+  state.upsertJob(
+    buildJobRecord("task-blocked-env", {
+      task: {
+        projectKey: "beta",
+        routingKey: "beta",
+      },
+      state: "normalized",
+      bridgeState: "synced_back",
+      workboardCardId: "card-blocked-env",
+      openClawCardStatus: "blocked",
+      handedOffAt: "2026-07-23T12:00:00.000Z",
+      dispatchedAt: "2026-07-23T12:15:00.000Z",
+      terminalAt: "2026-07-23T12:35:00.000Z",
+      outcome: "blocked",
+      lastError: "Gateway timeout during deploy",
+      terminalContext: {
+        blockerContext: "Gateway timeout during deploy",
+      },
+      blockedAt: "2026-07-23T12:35:00.000Z",
+      lastEventAt: "2026-07-23T12:35:00.000Z",
+      updatedAt: "2026-07-23T12:35:00.000Z",
+    }),
+  );
+
+  const services = createBridgeServices(buildPhase8Config(), {
+    stateStore: state,
+    openClawWorkboard: new FakeOpenClawWorkboardAdapter() as never,
+  });
+
+  const metrics = services.getMetricsSnapshot({ now: "2026-07-23T13:00:00.000Z" });
+  const dashboard = services.getDashboardSnapshot({ now: "2026-07-23T13:00:00.000Z" });
+
+  assert.equal(metrics.routingKeyCounts.acme, 2);
+  assert.equal(metrics.routingKeyCounts.beta, 1);
+  assert.equal(metrics.throughput.queueWaitMs > 0, true);
+  assert.equal(metrics.latency.averageRunningDurationMs > 0, true);
+  assert.equal(dashboard.completionRates.byRoutingKey.find((item) => item.routingKey === "acme")?.total, 2);
+  assert.equal(dashboard.completionRates.byBlockedCategory.find((item) => item.category === "access")?.total, 1);
+  assert.equal(
+    dashboard.completionRates.byBlockedCategory.find((item) => item.category === "environment")?.total,
+    1,
+  );
 });
 
 test("dispatchOpenClawWorkboard only advances queued cards", async () => {
