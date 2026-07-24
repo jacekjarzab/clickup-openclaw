@@ -44,6 +44,15 @@ type WebSocketRpcResponse = {
   error?: WebSocketRpcErrorPayload;
 };
 
+class OpenClawWebSocketRpcError extends Error {
+  readonly retriable = false;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "OpenClawWebSocketRpcError";
+  }
+}
+
 export type OpenClawWebSocketWorkboardAdapterOptions = {
   url: string;
   boardId?: string;
@@ -368,7 +377,6 @@ export class OpenClawWebSocketWorkboardAdapter implements OpenClawWorkboardTrans
     };
 
     return this.runWithRetry(operation, method, async () => {
-      const startedAt = Date.now();
       let socket: WebSocketLike | undefined;
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -424,7 +432,13 @@ export class OpenClawWebSocketWorkboardAdapter implements OpenClawWorkboardTrans
             }
 
             if (response.error !== undefined) {
-              settle(new Error(response.error.message));
+              settle(
+                new OpenClawWebSocketRpcError(
+                  response.error.code === undefined
+                    ? response.error.message
+                    : `JSON-RPC error ${response.error.code}: ${response.error.message}`,
+                ),
+              );
               return;
             }
 

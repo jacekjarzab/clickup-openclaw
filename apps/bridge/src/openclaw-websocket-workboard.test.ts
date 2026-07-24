@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { BridgeToWorkboardCard } from "@clickup-openclaw/shared";
 
+import { loadConfig } from "./config.js";
 import { OpenClawWebSocketWorkboardAdapter } from "./openclaw-websocket-workboard.js";
 
 const payload: BridgeToWorkboardCard = {
@@ -131,4 +132,67 @@ test("OpenClawWebSocketWorkboardAdapter records websocket transport telemetry", 
   assert.equal(snapshot.connectionAttempts, 2);
   assert.equal(snapshot.connectionFailures, 0);
   assert.equal(snapshot.recentFailures.length, 0);
+});
+
+test("OpenClawWebSocketWorkboardAdapter does not retry JSON-RPC application errors", async () => {
+  let attempts = 0;
+  const adapter = new OpenClawWebSocketWorkboardAdapter({
+    url: "ws://example.invalid/workboard",
+    socketFactory: () => {
+      attempts += 1;
+
+      const socket: {
+        readyState: number;
+        send(data: string): void;
+        close(): void;
+        onopen: ((event: { type: "open" }) => void) | null;
+        onmessage: ((event: { data: string }) => void) | null;
+        onerror: ((event: { error?: unknown }) => void) | null;
+        onclose: ((event: { code: number; reason: string }) => void) | null;
+      } = {
+        readyState: 0,
+        onopen: null,
+        onmessage: null,
+        onerror: null,
+        onclose: null,
+        send(data: string) {
+          const parsed = JSON.parse(data) as Record<string, unknown>;
+          queueMicrotask(() => {
+            socket.onmessage?.({
+              data: JSON.stringify({
+                jsonrpc: "2.0",
+                id: parsed.id,
+                error: {
+                  code: -32000,
+                  message: "Worker socket pool unavailable",
+                },
+              }),
+            });
+          });
+        },
+        close() {
+          socket.onclose?.({ code: 1000, reason: "closed" });
+        },
+      };
+
+      queueMicrotask(() => {
+        socket.onopen?.({ type: "open" });
+      });
+
+      return socket;
+    },
+  });
+
+  await assert.rejects(async () => adapter.createCard(payload), /JSON-RPC error -32000: Worker socket pool unavailable/);
+  assert.equal(attempts, 1);
+});
+
+test("loadConfig rejects non-WebSocket transport URLs", () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        OPENCLAW_WORKBOARD_WS_URL: "https://example.invalid/workboard",
+      }),
+    /must be a ws:\/\/ or wss:\/\/ URL/,
+  );
 });
