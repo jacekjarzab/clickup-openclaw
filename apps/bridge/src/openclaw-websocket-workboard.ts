@@ -102,6 +102,19 @@ function normalizeCardStatus(value: unknown): OpenClawWorkboardCardStatus | unde
   return parsed.success ? parsed.data : undefined;
 }
 
+function readCardRecord(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (typeof value.id === "string") {
+    return value;
+  }
+
+  const nestedCard = value.card;
+  if (nestedCard !== null && typeof nestedCard === "object" && !Array.isArray(nestedCard)) {
+    return nestedCard as Record<string, unknown>;
+  }
+
+  return undefined;
+}
+
 function readNestedString(record: Record<string, unknown>, path: string[]): string | undefined {
   let current: unknown = record;
   for (const key of path) {
@@ -465,12 +478,17 @@ export class OpenClawWebSocketWorkboardAdapter implements OpenClawWorkboardTrans
       ...(this.boardId === undefined ? {} : { boardId: this.boardId }),
       payload,
     });
-    const id = typeof result.id === "string" ? result.id : undefined;
+    const card = readCardRecord(result);
+    if (card === undefined) {
+      throw new Error("WebSocket workboard create response did not include a card");
+    }
+
+    const id = typeof card.id === "string" ? card.id : undefined;
     if (id === undefined) {
       throw new Error("WebSocket workboard create response did not include an id");
     }
 
-    return toCardSummary(id, result);
+    return toCardSummary(id, card);
   }
 
   async showCard(id: string): Promise<OpenClawWorkboardCardSummary> {

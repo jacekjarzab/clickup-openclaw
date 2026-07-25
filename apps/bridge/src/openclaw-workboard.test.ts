@@ -68,6 +68,29 @@ test("OpenClawWorkboardAdapter createCard shells out with expected args", async 
   assert.ok(calls[0]?.args.includes("--json"));
 });
 
+test("OpenClawWorkboardAdapter createCard accepts nested card responses", async () => {
+  const adapter = new OpenClawWorkboardAdapter({
+    runner: async () => {
+      return {
+        stdout: JSON.stringify({
+          card: {
+            id: "card-1",
+            status: "ready",
+            summary: "Created via nested card payload",
+          },
+        }),
+        stderr: "",
+      };
+    },
+  });
+
+  const created = await adapter.createCard(payload);
+
+  assert.equal(created.id, "card-1");
+  assert.equal(created.status, "ready");
+  assert.equal(created.raw.summary, "Created via nested card payload");
+});
+
 test("OpenClawWorkboardAdapter createCard rejects unknown payload fields", async () => {
   const adapter = new OpenClawWorkboardAdapter({
     runner: async () => {
@@ -189,6 +212,25 @@ test("OpenClawWorkboardAdapter records transport telemetry", async () => {
   assert.equal(snapshot.operations.listCards.calls, 1);
   assert.equal(snapshot.operations.dispatch.calls, 1);
   assert.equal(snapshot.recentFailures.length, 0);
+});
+
+test("OpenClawWorkboardAdapter listCards accepts { cards: [] } payloads", async () => {
+  const adapter = new OpenClawWorkboardAdapter({
+    runner: async () => {
+      return {
+        stdout: JSON.stringify({
+          cards: [{ id: "card-1", status: "ready" }],
+        }),
+        stderr: "",
+      };
+    },
+  });
+
+  const cards = await adapter.listCards();
+
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0]?.id, "card-1");
+  assert.equal(cards[0]?.status, "ready");
 });
 
 test("OpenClawWorkboardAdapter showCard extracts terminal context from payloads", async () => {

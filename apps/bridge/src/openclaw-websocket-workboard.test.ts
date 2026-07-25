@@ -109,6 +109,62 @@ test("OpenClawWebSocketWorkboardAdapter retries transient createCard failures", 
   assert.equal(created.raw.summary, "Created over websocket");
 });
 
+test("OpenClawWebSocketWorkboardAdapter accepts nested card create responses", async () => {
+  const adapter = new OpenClawWebSocketWorkboardAdapter({
+    url: "ws://example.invalid/workboard",
+    socketFactory: () => {
+      const socket: {
+        readyState: number;
+        send(data: string): void;
+        close(): void;
+        onopen: ((event: { type: "open" }) => void) | null;
+        onmessage: ((event: { data: string }) => void) | null;
+        onerror: ((event: { error?: unknown }) => void) | null;
+        onclose: ((event: { code: number; reason: string }) => void) | null;
+      } = {
+        readyState: 0,
+        onopen: null,
+        onmessage: null,
+        onerror: null,
+        onclose: null,
+        send(data: string) {
+          const parsed = JSON.parse(data) as Record<string, unknown>;
+          queueMicrotask(() => {
+            socket.onmessage?.({
+              data: JSON.stringify({
+                jsonrpc: "2.0",
+                id: parsed.id,
+                result: {
+                  card: {
+                    id: "card-1",
+                    status: "ready",
+                    summary: "Created over websocket via nested payload",
+                  },
+                },
+              }),
+            });
+          });
+        },
+        close() {
+          socket.onclose?.({ code: 1000, reason: "closed" });
+        },
+      };
+
+      queueMicrotask(() => {
+        socket.onopen?.({ type: "open" });
+      });
+
+      return socket;
+    },
+  });
+
+  const created = await adapter.createCard(payload);
+
+  assert.equal(created.id, "card-1");
+  assert.equal(created.status, "ready");
+  assert.equal(created.raw.summary, "Created over websocket via nested payload");
+});
+
 test("OpenClawWebSocketWorkboardAdapter records websocket transport telemetry", async () => {
   const fake = createSocketFactory();
   const adapter = new OpenClawWebSocketWorkboardAdapter({

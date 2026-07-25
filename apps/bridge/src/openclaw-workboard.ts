@@ -142,6 +142,35 @@ function parseJsonObject(stdout: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+function readCardRecord(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (typeof value.id === "string") {
+    return value;
+  }
+
+  const nestedCard = value.card;
+  if (nestedCard !== null && typeof nestedCard === "object" && !Array.isArray(nestedCard)) {
+    return nestedCard as Record<string, unknown>;
+  }
+
+  return undefined;
+}
+
+function parseListResponse(stdout: string): Record<string, unknown>[] {
+  const parsed = JSON.parse(stdout) as unknown;
+  if (Array.isArray(parsed)) {
+    return parsed.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object");
+  }
+
+  if (parsed !== null && typeof parsed === "object") {
+    const record = parsed as Record<string, unknown>;
+    if (Array.isArray(record.cards)) {
+      return record.cards.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object");
+    }
+  }
+
+  throw new Error("Expected JSON array or { cards: [] } from openclaw workboard list");
+}
+
 function normalizeCardStatus(value: unknown): OpenClawWorkboardCardStatus | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -468,12 +497,17 @@ export class OpenClawWorkboardAdapter {
         buildRunnerOptions(this.cwd, this.timeoutMs),
       );
       const raw = parseJsonObject(stdout);
-      const id = typeof raw.id === "string" ? raw.id : undefined;
+      const card = readCardRecord(raw);
+      if (card === undefined) {
+        throw new Error("OpenClaw card create response did not include a card");
+      }
+
+      const id = typeof card.id === "string" ? card.id : undefined;
       if (id === undefined) {
         throw new Error("OpenClaw card create response did not include an id");
       }
 
-      return toCardSummary(id, raw);
+      return toCardSummary(id, card);
     });
   }
 
@@ -508,13 +542,7 @@ export class OpenClawWorkboardAdapter {
         args,
         buildRunnerOptions(this.cwd, this.timeoutMs),
       );
-      const parsed = JSON.parse(stdout) as unknown;
-      if (!Array.isArray(parsed)) {
-        throw new Error("Expected JSON array from openclaw workboard list");
-      }
-
-      return parsed
-        .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
+      return parseListResponse(stdout)
         .map((raw) => toCardSummary(typeof raw.id === "string" ? raw.id : "", raw))
         .filter((item) => item.id.length > 0);
     });

@@ -1,3 +1,5 @@
+import "./load-env.js";
+
 import { buildAndStartBridge } from "./app.js";
 
 void buildAndStartBridge().catch((error: unknown) => {
