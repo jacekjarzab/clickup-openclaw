@@ -24,7 +24,17 @@ const envSchema = z.object({
   PROJECT_ROUTING_JSON: z.string().optional(),
   OPENCLAW_BIN: z.string().min(1).optional(),
   OPENCLAW_WORKBOARD_BOARD_ID: z.string().min(1).optional(),
+  OPENCLAW_WORKBOARD_TRANSPORT: z.enum(["cli", "websocket"]).default("cli"),
   OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS: z.string().optional(),
+  OPENCLAW_WORKBOARD_WS_URL: z
+    .string()
+    .url()
+    .refine((value) => value.startsWith("ws://") || value.startsWith("wss://"), {
+      message: "must be a ws:// or wss:// URL",
+    })
+    .optional(),
+  OPENCLAW_WORKBOARD_WS_PROTOCOL: z.string().min(1).optional(),
+  OPENCLAW_WORKBOARD_WS_TIMEOUT_MS: z.string().optional(),
   OPENCLAW_WATCH_INTERVAL_MS: z.string().optional(),
   BRIDGE_RETRY_MAX_ATTEMPTS: z.string().optional(),
   BRIDGE_RETRY_BASE_DELAY_MS: z.string().optional(),

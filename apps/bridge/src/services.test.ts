@@ -13,6 +13,7 @@ import type {
   ClickUpTask,
   OpenClawWorkboardCardStatus,
 } from "@clickup-openclaw/shared";
+import type { OpenClawTransportSnapshot } from "./openclaw-workboard.js";
 
 class FakeOpenClawWorkboardAdapter {
   public readonly created: BridgeToWorkboardCard[] = [];
@@ -108,6 +109,23 @@ class FakeOpenClawWorkboardAdapter {
     }
 
     return [];
+  }
+
+  getTransportSnapshot(): OpenClawTransportSnapshot {
+    return {
+      mode: "cli",
+      binary: "openclaw",
+      boardId: undefined,
+      operations: {
+        createCard: { calls: 0, failures: 0, lastError: undefined, retries: 0, averageDurationMs: 0 },
+        showCard: { calls: 0, failures: 0, lastError: undefined, retries: 0, averageDurationMs: 0 },
+        listCards: { calls: 0, failures: 0, lastError: undefined, retries: 0, averageDurationMs: 0 },
+        dispatch: { calls: 0, failures: 0, lastError: undefined, retries: 0, averageDurationMs: 0 },
+      },
+      connectionAttempts: 0,
+      connectionFailures: 0,
+      recentFailures: [],
+    };
   }
 }
 
@@ -385,12 +403,32 @@ test("dashboard snapshot reports routing throughput and blocked categories", () 
   assert.equal(metrics.routingKeyCounts.beta, 1);
   assert.equal(metrics.throughput.queueWaitMs > 0, true);
   assert.equal(metrics.latency.averageRunningDurationMs > 0, true);
+  assert.equal(dashboard.transport.mode, "cli");
+  assert.equal(dashboard.transport.operations.createCard.calls, 0);
   assert.equal(dashboard.completionRates.byRoutingKey.find((item) => item.routingKey === "acme")?.total, 2);
   assert.equal(dashboard.completionRates.byBlockedCategory.find((item) => item.category === "access")?.total, 1);
   assert.equal(
     dashboard.completionRates.byBlockedCategory.find((item) => item.category === "environment")?.total,
     1,
   );
+});
+
+test("bridge dashboard reports websocket transport mode when configured", () => {
+  const services = createBridgeServices(
+    buildConfig({
+      OPENCLAW_WORKBOARD_TRANSPORT: "websocket",
+      OPENCLAW_WORKBOARD_WS_URL: "ws://example.invalid/workboard",
+    }),
+    {
+      stateStore: new InMemoryStateStore(),
+    },
+  );
+
+  const dashboard = services.getDashboardSnapshot({ now: "2026-07-23T13:00:00.000Z" });
+
+  assert.equal(dashboard.transport.mode, "websocket");
+  assert.equal(dashboard.transport.endpoint, "ws://example.invalid/workboard");
+  assert.equal(dashboard.transport.operations.createCard.calls, 0);
 });
 
 test("dispatchOpenClawWorkboard only advances queued cards", async () => {

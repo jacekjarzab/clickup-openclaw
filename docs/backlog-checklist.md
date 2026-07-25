@@ -174,9 +174,12 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Add reporting for card lifecycle throughput and blocked-task categories
   - Track handoff-to-running, running-to-terminal, and queue wait times
   - Break blocked outcomes into useful categories, not just a single bucket
-- [ ] Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
-  - Compare latency, reconnect behavior, and operational complexity against the CLI path
+- [x] Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
+  - Measure the current CLI baseline for create, show, list, and dispatch operations
+  - Define the transport contract the Bridge would need from a WebSocket client
+  - Compare latency, reconnect behavior, and operational overhead against the CLI path
   - Define what would justify adopting it as an optional transport
+  - Implemented: the Bridge can now switch between CLI and websocket transports via config, and the websocket adapter reports transport telemetry for comparison
 
 ## Replaced or Removed Work
 
