@@ -5,9 +5,11 @@ Use this checklist after merging to `master` to verify the integration end to en
 ## Prerequisites
 
 - Fresh install or clean local environment
-- Valid auth / API credentials available
-- Target workspace or project configured
-- Webhook or event endpoint reachable, if applicable
+- `CLICKUP_API_TOKEN` set to a valid token with access to the target ClickUp workspace/list/task
+- A known target workspace, list, or task to exercise
+- If testing websocket transport, `OPENCLAW_WORKBOARD_WS_URL` set to a reachable WebSocket endpoint
+- If testing webhook/event delivery, the bridge must be reachable from ClickUp or your test source
+- `CLICKUP_BASE_URL` only if you are pointing at a non-default ClickUp API endpoint
 
 ## Happy Path
 
