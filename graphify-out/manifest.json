@@ -1,0 +1,187 @@
+{
+  "apps/bridge/package.json": {
+    "mtime": 1784901139.4416518,
+    "ast_hash": "25d504ff25320b2a8c9a5dab7a5c4331",
+    "semantic_hash": "25d504ff25320b2a8c9a5dab7a5c4331"
+  },
+  "apps/bridge/src/config.ts": {
+    "mtime": 1784901139.4419272,
+    "ast_hash": "7093dcff13bc6c3b3dd561158e471ddb",
+    "semantic_hash": "7093dcff13bc6c3b3dd561158e471ddb"
+  },
+  "apps/bridge/src/index.ts": {
+    "mtime": 1784901139.442138,
+    "ast_hash": "23a170f46937946889825b72ea061516",
+    "semantic_hash": "23a170f46937946889825b72ea061516"
+  },
+  "apps/bridge/src/openclaw-workboard.test.ts": {
+    "mtime": 1784901139.4425497,
+    "ast_hash": "c93c966c778684e933a21ad37e15efc1",
+    "semantic_hash": "c93c966c778684e933a21ad37e15efc1"
+  },
+  "apps/bridge/src/openclaw-workboard.ts": {
+    "mtime": 1784901139.442951,
+    "ast_hash": "22ae6e4628b21b8f6dcc9159a43d8d44",
+    "semantic_hash": "22ae6e4628b21b8f6dcc9159a43d8d44"
+  },
+  "apps/bridge/src/repo-url.test.ts": {
+    "mtime": 1784901139.4431412,
+    "ast_hash": "489f923e47233307f6e88af123f9966b",
+    "semantic_hash": "489f923e47233307f6e88af123f9966b"
+  },
+  "apps/bridge/src/repo-url.ts": {
+    "mtime": 1784901139.443516,
+    "ast_hash": "744cba52486025281e5f2b7ff9f58e7d",
+    "semantic_hash": "744cba52486025281e5f2b7ff9f58e7d"
+  },
+  "apps/bridge/src/services.test.ts": {
+    "mtime": 1784901139.443799,
+    "ast_hash": "0e78235dca7e8da1af11c7440d027416",
+    "semantic_hash": "0e78235dca7e8da1af11c7440d027416"
+  },
+  "apps/bridge/src/services.ts": {
+    "mtime": 1784901139.444461,
+    "ast_hash": "5f6fcf95f6bfdd3f157b9575353295ce",
+    "semantic_hash": "5f6fcf95f6bfdd3f157b9575353295ce"
+  },
+  "apps/bridge/tsconfig.json": {
+    "mtime": 1784901139.4446805,
+    "ast_hash": "5f91f12a7006a00b6a7746dffdaa4d32",
+    "semantic_hash": "5f91f12a7006a00b6a7746dffdaa4d32"
+  },
+  "package.json": {
+    "mtime": 1784901139.4477665,
+    "ast_hash": "5d875d186b04ebcfaa9c9d134ca0b7cc",
+    "semantic_hash": "5d875d186b04ebcfaa9c9d134ca0b7cc"
+  },
+  "packages/clickup-client/package.json": {
+    "mtime": 1784901139.448125,
+    "ast_hash": "c77c8e6aba628f3187357ff591509f46",
+    "semantic_hash": "c77c8e6aba628f3187357ff591509f46"
+  },
+  "packages/clickup-client/src/index.js": {
+    "mtime": 1784901139.4483979,
+    "ast_hash": "0e83365e279d589349bb82df61953164",
+    "semantic_hash": "0e83365e279d589349bb82df61953164"
+  },
+  "packages/clickup-client/src/index.test.ts": {
+    "mtime": 1784901139.4488015,
+    "ast_hash": "68aaf977eade8253b660967663017a29",
+    "semantic_hash": "68aaf977eade8253b660967663017a29"
+  },
+  "packages/clickup-client/src/index.ts": {
+    "mtime": 1784901139.4491978,
+    "ast_hash": "f50901ab5ee4c38ae06a56c7ce290e0b",
+    "semantic_hash": "f50901ab5ee4c38ae06a56c7ce290e0b"
+  },
+  "packages/clickup-client/tsconfig.json": {
+    "mtime": 1784901139.449373,
+    "ast_hash": "5f91f12a7006a00b6a7746dffdaa4d32",
+    "semantic_hash": "5f91f12a7006a00b6a7746dffdaa4d32"
+  },
+  "packages/observability/package.json": {
+    "mtime": 1784901139.449651,
+    "ast_hash": "9ee459a799ec6329778c756016a67a37",
+    "semantic_hash": "9ee459a799ec6329778c756016a67a37"
+  },
+  "packages/observability/src/index.js": {
+    "mtime": 1784901139.4500248,
+    "ast_hash": "ae503e526a0fedae25d4aeb64a55bf14",
+    "semantic_hash": "ae503e526a0fedae25d4aeb64a55bf14"
+  },
+  "packages/observability/src/index.ts": {
+    "mtime": 1784901139.4502208,
+    "ast_hash": "11f523f51d38e3cd84451cce66db162a",
+    "semantic_hash": "11f523f51d38e3cd84451cce66db162a"
+  },
+  "packages/observability/tsconfig.json": {
+    "mtime": 1784901139.4503927,
+    "ast_hash": "5f91f12a7006a00b6a7746dffdaa4d32",
+    "semantic_hash": "5f91f12a7006a00b6a7746dffdaa4d32"
+  },
+  "packages/shared/package.json": {
+    "mtime": 1784901139.4507496,
+    "ast_hash": "8c178caea8babd59d03c765a7b6f184b",
+    "semantic_hash": "8c178caea8babd59d03c765a7b6f184b"
+  },
+  "packages/shared/src/index.js": {
+    "mtime": 1784901139.45119,
+    "ast_hash": "50124bfc2507f3bb00d41c25762dc30f",
+    "semantic_hash": "50124bfc2507f3bb00d41c25762dc30f"
+  },
+  "packages/shared/src/index.ts": {
+    "mtime": 1784901139.4515445,
+    "ast_hash": "49da129077a352b56cf6dd0c3dc09f02",
+    "semantic_hash": "49da129077a352b56cf6dd0c3dc09f02"
+  },
+  "packages/shared/tsconfig.json": {
+    "mtime": 1784901139.4518332,
+    "ast_hash": "5f91f12a7006a00b6a7746dffdaa4d32",
+    "semantic_hash": "5f91f12a7006a00b6a7746dffdaa4d32"
+  },
+  "packages/state/package.json": {
+    "mtime": 1784901139.452105,
+    "ast_hash": "fbdd5e2a15c3ac0ed003e4798bfc60ff",
+    "semantic_hash": "fbdd5e2a15c3ac0ed003e4798bfc60ff"
+  },
+  "packages/state/src/index.js": {
+    "mtime": 1784901139.452678,
+    "ast_hash": "524cd6c3911fe4591c7461400e7fa6fe",
+    "semantic_hash": "524cd6c3911fe4591c7461400e7fa6fe"
+  },
+  "packages/state/src/index.ts": {
+    "mtime": 1784901139.4529986,
+    "ast_hash": "53e67d0bb268107a42c8b9ff79d27d90",
+    "semantic_hash": "53e67d0bb268107a42c8b9ff79d27d90"
+  },
+  "packages/state/tsconfig.json": {
+    "mtime": 1784901139.4531653,
+    "ast_hash": "5f91f12a7006a00b6a7746dffdaa4d32",
+    "semantic_hash": "5f91f12a7006a00b6a7746dffdaa4d32"
+  },
+  "tsconfig.base.json": {
+    "mtime": 1784901139.4540248,
+    "ast_hash": "5816dcba23549cc87313355ba34ca568",
+    "semantic_hash": "5816dcba23549cc87313355ba34ca568"
+  },
+  "README.md": {
+    "mtime": 1784901139.441289,
+    "ast_hash": "a0efa4fa687d9158e44d31185ddd9f18",
+    "semantic_hash": "a0efa4fa687d9158e44d31185ddd9f18"
+  },
+  "docs/architecture.md": {
+    "mtime": 1784901139.444985,
+    "ast_hash": "9398d2c410869bc4739e354eebd8119c",
+    "semantic_hash": "9398d2c410869bc4739e354eebd8119c"
+  },
+  "docs/backlog-checklist.md": {
+    "mtime": 1784901139.445344,
+    "ast_hash": "c96bb661e770bb30a9b0fbee60aa3097",
+    "semantic_hash": "c96bb661e770bb30a9b0fbee60aa3097"
+  },
+  "docs/clickup-task-schema.md": {
+    "mtime": 1784901139.445733,
+    "ast_hash": "0b2e3d51935913a7ca24549aea12b1d1",
+    "semantic_hash": "0b2e3d51935913a7ca24549aea12b1d1"
+  },
+  "docs/openclaw-bridge-spec.md": {
+    "mtime": 1784901139.446577,
+    "ast_hash": "69c8a3561b296da93400789762238325",
+    "semantic_hash": "69c8a3561b296da93400789762238325"
+  },
+  "docs/plan.md": {
+    "mtime": 1784901139.4469812,
+    "ast_hash": "4789b88ab3bda1ad543c19a6beba370d",
+    "semantic_hash": "4789b88ab3bda1ad543c19a6beba370d"
+  },
+  "scripts/README.md": {
+    "mtime": 1784901139.4535806,
+    "ast_hash": "cb8c34f25838e214509c7be326af004e",
+    "semantic_hash": "cb8c34f25838e214509c7be326af004e"
+  },
+  "tests/README.md": {
+    "mtime": 1784901139.4538405,
+    "ast_hash": "603510a8d846c829719d0d28208fd7de",
+    "semantic_hash": "603510a8d846c829719d0d28208fd7de"
+  }
+}

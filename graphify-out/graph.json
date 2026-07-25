@@ -1,0 +1,1524 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {
+    "hyperedges": [
+      {
+        "id": "clickup_bridge_runtime_loop",
+        "label": "ClickUp Bridge Runtime Loop",
+        "nodes": [
+          "clickup_system_of_record",
+          "bridge_orchestration_layer",
+          "openclaw_workboard_runtime"
+        ],
+        "relation": "form",
+        "confidence": "INFERRED",
+        "confidence_score": 0.85,
+        "source_file": "docs/architecture.md"
+      },
+      {
+        "id": "task_handoff_contract",
+        "label": "Task Handoff Contract",
+        "nodes": [
+          "automation_eligible_tasks",
+          "idempotent_handoff",
+          "clickup_status_mapping",
+          "task_metadata_contract"
+        ],
+        "relation": "form",
+        "confidence": "INFERRED",
+        "confidence_score": 0.85,
+        "source_file": "docs/openclaw-bridge-spec.md"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "label": "BridgeConfig",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/config.ts",
+      "source_location": "L34",
+      "_origin": "ast",
+      "id": "apps_bridge_src_config_bridgeconfig",
+      "community": 6,
+      "norm_label": "bridgeconfig"
+    },
+    {
+      "label": "loadConfig",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/config.ts",
+      "source_location": "L36",
+      "_origin": "ast",
+      "id": "apps_bridge_src_config_loadconfig",
+      "community": 0,
+      "norm_label": "loadconfig"
+    },
+    {
+      "label": "OpenClawCommandRunner",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/openclaw-workboard.ts",
+      "source_location": "L25",
+      "_origin": "ast",
+      "id": "apps_bridge_src_openclaw_workboard_openclawcommandrunner",
+      "community": 3,
+      "norm_label": "openclawcommandrunner"
+    },
+    {
+      "label": "OpenClawWorkboardDispatchResult",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/openclaw-workboard.ts",
+      "source_location": "L31",
+      "_origin": "ast",
+      "id": "apps_bridge_src_openclaw_workboard_openclawworkboarddispatchresult",
+      "community": 10,
+      "norm_label": "openclawworkboarddispatchresult"
+    },
+    {
+      "label": "OpenClawWorkboardCardSummary",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/openclaw-workboard.ts",
+      "source_location": "L38",
+      "_origin": "ast",
+      "id": "apps_bridge_src_openclaw_workboard_openclawworkboardcardsummary",
+      "community": 9,
+      "norm_label": "openclawworkboardcardsummary"
+    },
+    {
+      "label": "OpenClawWorkboardAdapterOptions",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/openclaw-workboard.ts",
+      "source_location": "L45",
+      "_origin": "ast",
+      "id": "apps_bridge_src_openclaw_workboard_openclawworkboardadapteroptions",
+      "community": 8,
+      "norm_label": "openclawworkboardadapteroptions"
+    },
+    {
+      "label": "renderBridgeMetadataBlock",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/openclaw-workboard.ts",
+      "source_location": "L252",
+      "_origin": "ast",
+      "id": "apps_bridge_src_openclaw_workboard_renderbridgemetadatablock",
+      "community": 11,
+      "norm_label": "renderbridgemetadatablock"
+    },
+    {
+      "label": "buildOpenClawNotes",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/openclaw-workboard.ts",
+      "source_location": "L261",
+      "_origin": "ast",
+      "id": "apps_bridge_src_openclaw_workboard_buildopenclawnotes",
+      "community": 7,
+      "norm_label": "buildopenclawnotes"
+    },
+    {
+      "label": "OpenClawWorkboardAdapter",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/openclaw-workboard.ts",
+      "source_location": "L265",
+      "_origin": "ast",
+      "id": "apps_bridge_src_openclaw_workboard_openclawworkboardadapter",
+      "community": 3,
+      "norm_label": "openclawworkboardadapter"
+    },
+    {
+      "label": "normalizeRepoUrl",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/repo-url.ts",
+      "source_location": "L14",
+      "_origin": "ast",
+      "id": "apps_bridge_src_repo_url_normalizerepourl",
+      "community": 12,
+      "norm_label": "normalizerepourl"
+    },
+    {
+      "label": "resolveRepoUrl",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/repo-url.ts",
+      "source_location": "L122",
+      "_origin": "ast",
+      "id": "apps_bridge_src_repo_url_resolverepourl",
+      "community": 13,
+      "norm_label": "resolverepourl"
+    },
+    {
+      "label": "extractOpenClawTerminalContext",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/services.ts",
+      "source_location": "L824",
+      "_origin": "ast",
+      "id": "apps_bridge_src_services_extractopenclawterminalcontext",
+      "community": 15,
+      "norm_label": "extractopenclawterminalcontext"
+    },
+    {
+      "label": "buildOpenClawStatusComment",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/services.ts",
+      "source_location": "L933",
+      "_origin": "ast",
+      "id": "apps_bridge_src_services_buildopenclawstatuscomment",
+      "community": 14,
+      "norm_label": "buildopenclawstatuscomment"
+    },
+    {
+      "label": "createBridgeServices",
+      "file_type": "code",
+      "source_file": "apps/bridge/src/services.ts",
+      "source_location": "L1066",
+      "_origin": "ast",
+      "id": "apps_bridge_src_services_createbridgeservices",
+      "community": 0,
+      "norm_label": "createbridgeservices"
+    },
+    {
+      "label": "createClickUpClient",
+      "file_type": "code",
+      "source_file": "packages/clickup-client/src/index.js",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "packages_clickup_client_src_index_js_packages_clickup_client_src_index_createclickupclient",
+      "community": 16,
+      "norm_label": "createclickupclient"
+    },
+    {
+      "label": "createClickUpClient",
+      "file_type": "code",
+      "source_file": "packages/clickup-client/src/index.ts",
+      "source_location": "L13",
+      "_origin": "ast",
+      "id": "packages_clickup_client_src_index_ts_packages_clickup_client_src_index_createclickupclient",
+      "community": 17,
+      "norm_label": "createclickupclient"
+    },
+    {
+      "label": "createLogger",
+      "file_type": "code",
+      "source_file": "packages/observability/src/index.js",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "packages_observability_src_index_js_packages_observability_src_index_createlogger",
+      "community": 18,
+      "norm_label": "createlogger"
+    },
+    {
+      "label": "Logger",
+      "file_type": "code",
+      "source_file": "packages/observability/src/index.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "packages_observability_src_index_logger",
+      "community": 19,
+      "norm_label": "logger"
+    },
+    {
+      "label": "createLogger",
+      "file_type": "code",
+      "source_file": "packages/observability/src/index.ts",
+      "source_location": "L8",
+      "_origin": "ast",
+      "id": "packages_observability_src_index_ts_packages_observability_src_index_createlogger",
+      "community": 1,
+      "norm_label": "createlogger"
+    },
+    {
+      "label": "isHumanReviewWorkboardStatus",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.js",
+      "source_location": "L38",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_js_packages_shared_src_index_ishumanreviewworkboardstatus",
+      "community": 27,
+      "norm_label": "ishumanreviewworkboardstatus"
+    },
+    {
+      "label": "isBlockedWorkboardStatus",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.js",
+      "source_location": "L41",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_js_packages_shared_src_index_isblockedworkboardstatus",
+      "community": 26,
+      "norm_label": "isblockedworkboardstatus"
+    },
+    {
+      "label": "workboardCardPrioritySchema",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.js",
+      "source_location": "L105",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_js_packages_shared_src_index_workboardcardpriorityschema",
+      "community": 28,
+      "norm_label": "workboardcardpriorityschema"
+    },
+    {
+      "label": "getWorkboardToClickUpStatusMapping",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.js",
+      "source_location": "L209",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_js_packages_shared_src_index_getworkboardtoclickupstatusmapping",
+      "community": 25,
+      "norm_label": "getworkboardtoclickupstatusmapping"
+    },
+    {
+      "label": "AutomationState",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L12",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_automationstate",
+      "community": 20,
+      "norm_label": "automationstate"
+    },
+    {
+      "label": "PriorityBucket",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L18",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_prioritybucket",
+      "community": 32,
+      "norm_label": "prioritybucket"
+    },
+    {
+      "label": "ClickUpAutomationStatus",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L33",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_clickupautomationstatus",
+      "community": 1,
+      "norm_label": "clickupautomationstatus"
+    },
+    {
+      "label": "OpenClawWorkboardCardStatus",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L49",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_openclawworkboardcardstatus",
+      "community": 31,
+      "norm_label": "openclawworkboardcardstatus"
+    },
+    {
+      "label": "OpenClawTerminalWorkboardCardStatus",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L55",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_openclawterminalworkboardcardstatus",
+      "community": 30,
+      "norm_label": "openclawterminalworkboardcardstatus"
+    },
+    {
+      "label": "isHumanReviewWorkboardStatus",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L62",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_ts_packages_shared_src_index_ishumanreviewworkboardstatus",
+      "community": 2,
+      "norm_label": "ishumanreviewworkboardstatus"
+    },
+    {
+      "label": "isBlockedWorkboardStatus",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L68",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_ts_packages_shared_src_index_isblockedworkboardstatus",
+      "community": 2,
+      "norm_label": "isblockedworkboardstatus"
+    },
+    {
+      "label": "OpenClawTerminalContext",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L72",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_openclawterminalcontext",
+      "community": 29,
+      "norm_label": "openclawterminalcontext"
+    },
+    {
+      "label": "BridgeJobState",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L93",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_bridgejobstate",
+      "community": 21,
+      "norm_label": "bridgejobstate"
+    },
+    {
+      "label": "WorkboardState",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L110",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workboardstate",
+      "community": 35,
+      "norm_label": "workboardstate"
+    },
+    {
+      "label": "ClickUpWebhookEvent",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L123",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_clickupwebhookevent",
+      "community": 23,
+      "norm_label": "clickupwebhookevent"
+    },
+    {
+      "label": "ClickUpTask",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L153",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_clickuptask",
+      "community": 4,
+      "norm_label": "clickuptask"
+    },
+    {
+      "label": "workboardCardPrioritySchema",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L155",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_ts_packages_shared_src_index_workboardcardpriorityschema",
+      "community": 2,
+      "norm_label": "workboardcardpriorityschema"
+    },
+    {
+      "label": "WorkboardCardPriority",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L157",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workboardcardpriority",
+      "community": 34,
+      "norm_label": "workboardcardpriority"
+    },
+    {
+      "label": "WorkboardCardCreate",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L170",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workboardcardcreate",
+      "community": 33,
+      "norm_label": "workboardcardcreate"
+    },
+    {
+      "label": "WorkboardCardMetadata",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L190",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workboardcardmetadata",
+      "community": 4,
+      "norm_label": "workboardcardmetadata"
+    },
+    {
+      "label": "BridgeToWorkboardCard",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L197",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_bridgetoworkboardcard",
+      "community": 4,
+      "norm_label": "bridgetoworkboardcard"
+    },
+    {
+      "label": "WorkboardToClickUpStatusMapping",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L207",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workboardtoclickupstatusmapping",
+      "community": 36,
+      "norm_label": "workboardtoclickupstatusmapping"
+    },
+    {
+      "label": "getWorkboardToClickUpStatusMapping",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L275",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_ts_packages_shared_src_index_getworkboardtoclickupstatusmapping",
+      "community": 2,
+      "norm_label": "getworkboardtoclickupstatusmapping"
+    },
+    {
+      "label": "ClaimRecord",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L297",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_claimrecord",
+      "community": 22,
+      "norm_label": "claimrecord"
+    },
+    {
+      "label": "IdempotencyRecord",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L307",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_idempotencyrecord",
+      "community": 24,
+      "norm_label": "idempotencyrecord"
+    },
+    {
+      "label": "WorkerLogLevel",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L311",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workerloglevel",
+      "community": 39,
+      "norm_label": "workerloglevel"
+    },
+    {
+      "label": "WorkerProgressState",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L322",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workerprogressstate",
+      "community": 41,
+      "norm_label": "workerprogressstate"
+    },
+    {
+      "label": "WorkerLogEvent",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L337",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workerlogevent",
+      "community": 38,
+      "norm_label": "workerlogevent"
+    },
+    {
+      "label": "WorkerProgressEvent",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L345",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workerprogressevent",
+      "community": 40,
+      "norm_label": "workerprogressevent"
+    },
+    {
+      "label": "WorkerEvent",
+      "file_type": "code",
+      "source_file": "packages/shared/src/index.ts",
+      "source_location": "L352",
+      "_origin": "ast",
+      "id": "packages_shared_src_index_workerevent",
+      "community": 37,
+      "norm_label": "workerevent"
+    },
+    {
+      "label": "InMemoryStateStore",
+      "file_type": "code",
+      "source_file": "packages/state/src/index.js",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "packages_state_src_index_js_packages_state_src_index_inmemorystatestore",
+      "community": 46,
+      "norm_label": "inmemorystatestore"
+    },
+    {
+      "label": "FileBackedStateStore",
+      "file_type": "code",
+      "source_file": "packages/state/src/index.js",
+      "source_location": "L112",
+      "_origin": "ast",
+      "id": "packages_state_src_index_js_packages_state_src_index_filebackedstatestore",
+      "community": 45,
+      "norm_label": "filebackedstatestore"
+    },
+    {
+      "label": "ClickUpWriteBackState",
+      "file_type": "code",
+      "source_file": "packages/state/src/index.ts",
+      "source_location": "L16",
+      "_origin": "ast",
+      "id": "packages_state_src_index_clickupwritebackstate",
+      "community": 42,
+      "norm_label": "clickupwritebackstate"
+    },
+    {
+      "label": "JobRecord",
+      "file_type": "code",
+      "source_file": "packages/state/src/index.ts",
+      "source_location": "L34",
+      "_origin": "ast",
+      "id": "packages_state_src_index_jobrecord",
+      "community": 44,
+      "norm_label": "jobrecord"
+    },
+    {
+      "label": "JobPatch",
+      "file_type": "code",
+      "source_file": "packages/state/src/index.ts",
+      "source_location": "L65",
+      "_origin": "ast",
+      "id": "packages_state_src_index_jobpatch",
+      "community": 43,
+      "norm_label": "jobpatch"
+    },
+    {
+      "label": "InMemoryStateStore",
+      "file_type": "code",
+      "source_file": "packages/state/src/index.ts",
+      "source_location": "L137",
+      "_origin": "ast",
+      "id": "packages_state_src_index_ts_packages_state_src_index_inmemorystatestore",
+      "community": 5,
+      "norm_label": "inmemorystatestore"
+    },
+    {
+      "label": "FileBackedStateStore",
+      "file_type": "code",
+      "source_file": "packages/state/src/index.ts",
+      "source_location": "L231",
+      "_origin": "ast",
+      "id": "packages_state_src_index_ts_packages_state_src_index_filebackedstatestore",
+      "community": 5,
+      "norm_label": "filebackedstatestore"
+    },
+    {
+      "label": "Project Overview",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "readme_overview",
+      "community": 0,
+      "norm_label": "project overview"
+    },
+    {
+      "label": "Architecture",
+      "file_type": "document",
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "docs_architecture_clickup_openclaw_architecture",
+      "community": 0,
+      "norm_label": "architecture"
+    },
+    {
+      "label": "Bridge Technical Spec",
+      "file_type": "document",
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec",
+      "community": 1,
+      "norm_label": "bridge technical spec"
+    },
+    {
+      "label": "Integration Plan",
+      "file_type": "document",
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "docs_plan_clickup_openclaw_integration_plan",
+      "community": 0,
+      "norm_label": "integration plan"
+    },
+    {
+      "label": "Backlog Checklist",
+      "file_type": "document",
+      "source_file": "docs/backlog-checklist.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "docs_backlog_checklist_clickup_openclaw_backlog_checklist",
+      "community": 1,
+      "norm_label": "backlog checklist"
+    },
+    {
+      "label": "Task Schema Proposal",
+      "file_type": "document",
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "docs_clickup_task_schema_clickup_task_schema_proposal",
+      "community": 1,
+      "norm_label": "task schema proposal"
+    },
+    {
+      "label": "Scripts",
+      "file_type": "document",
+      "source_file": "scripts/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "scripts_readme_scripts",
+      "community": 0,
+      "norm_label": "scripts"
+    },
+    {
+      "label": "Tests",
+      "file_type": "document",
+      "source_file": "tests/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "tests_readme_tests",
+      "community": 1,
+      "norm_label": "tests"
+    },
+    {
+      "label": "ClickUp Source of Truth",
+      "file_type": "concept",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "clickup_system_of_record",
+      "community": 0,
+      "norm_label": "clickup source of truth"
+    },
+    {
+      "label": "Bridge Orchestrator",
+      "file_type": "concept",
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "bridge_orchestration_layer",
+      "community": 0,
+      "norm_label": "bridge orchestrator"
+    },
+    {
+      "label": "OpenClaw Workboard Runtime",
+      "file_type": "concept",
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "openclaw_workboard_runtime",
+      "community": 0,
+      "norm_label": "openclaw workboard runtime"
+    },
+    {
+      "label": "Automation-Eligible Tasks",
+      "file_type": "concept",
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "automation_eligible_tasks",
+      "community": 1,
+      "norm_label": "automation-eligible tasks"
+    },
+    {
+      "label": "Idempotent Handoff",
+      "file_type": "concept",
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "idempotent_handoff",
+      "community": 1,
+      "norm_label": "idempotent handoff"
+    },
+    {
+      "label": "ClickUp Status Mapping",
+      "file_type": "concept",
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "clickup_status_mapping",
+      "community": 2,
+      "norm_label": "clickup status mapping"
+    },
+    {
+      "label": "Human Review Loop",
+      "file_type": "concept",
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "human_review_loop",
+      "community": 2,
+      "norm_label": "human review loop"
+    },
+    {
+      "label": "Observability Layer",
+      "file_type": "concept",
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "observability_layer",
+      "community": 1,
+      "norm_label": "observability layer"
+    },
+    {
+      "label": "Local CLI Adapter",
+      "file_type": "concept",
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "local_cli_adapter",
+      "community": 3,
+      "norm_label": "local cli adapter"
+    },
+    {
+      "label": "Bridge State Store",
+      "file_type": "concept",
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "bridge_state_store",
+      "community": 5,
+      "norm_label": "bridge state store"
+    },
+    {
+      "label": "Task Metadata Contract",
+      "file_type": "concept",
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "task_metadata_contract",
+      "community": 4,
+      "norm_label": "task metadata contract"
+    },
+    {
+      "label": "Workspace Shape",
+      "file_type": "concept",
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "workspace_shape",
+      "community": 0,
+      "norm_label": "workspace shape"
+    },
+    {
+      "label": "Boring MVP",
+      "file_type": "concept",
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "mvp_reliability",
+      "community": 3,
+      "norm_label": "boring mvp"
+    }
+  ],
+  "links": [
+    {
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "bridge_orchestration_layer",
+      "target": "apps_bridge_src_config_loadconfig"
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "local_cli_adapter",
+      "target": "apps_bridge_src_openclaw_workboard_openclawcommandrunner"
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "local_cli_adapter",
+      "target": "apps_bridge_src_openclaw_workboard_openclawworkboardadapter"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "openclaw_workboard_runtime",
+      "target": "apps_bridge_src_openclaw_workboard_openclawworkboardadapter"
+    },
+    {
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "automation_eligible_tasks",
+      "target": "apps_bridge_src_services_createbridgeservices"
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "bridge_orchestration_layer",
+      "target": "apps_bridge_src_services_createbridgeservices"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "clickup_system_of_record",
+      "target": "apps_bridge_src_services_createbridgeservices"
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "observability_layer",
+      "target": "packages_observability_src_index_ts_packages_observability_src_index_createlogger"
+    },
+    {
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "automation_eligible_tasks",
+      "target": "packages_shared_src_index_clickupautomationstatus"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "clickup_status_mapping",
+      "target": "packages_shared_src_index_ts_packages_shared_src_index_ishumanreviewworkboardstatus"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "human_review_loop",
+      "target": "packages_shared_src_index_ts_packages_shared_src_index_ishumanreviewworkboardstatus"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "clickup_status_mapping",
+      "target": "packages_shared_src_index_ts_packages_shared_src_index_isblockedworkboardstatus"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "human_review_loop",
+      "target": "packages_shared_src_index_ts_packages_shared_src_index_isblockedworkboardstatus"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "task_metadata_contract",
+      "target": "packages_shared_src_index_clickuptask"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "clickup_status_mapping",
+      "target": "packages_shared_src_index_ts_packages_shared_src_index_workboardcardpriorityschema"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "task_metadata_contract",
+      "target": "packages_shared_src_index_workboardcardmetadata"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "task_metadata_contract",
+      "target": "packages_shared_src_index_bridgetoworkboardcard"
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "clickup_status_mapping",
+      "target": "packages_shared_src_index_ts_packages_shared_src_index_getworkboardtoclickupstatusmapping"
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "bridge_state_store",
+      "target": "packages_state_src_index_ts_packages_state_src_index_inmemorystatestore"
+    },
+    {
+      "relation": "inherits",
+      "context": "type",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/state/src/index.ts",
+      "source_location": "L231",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_state_src_index_ts_packages_state_src_index_filebackedstatestore",
+      "target": "packages_state_src_index_ts_packages_state_src_index_inmemorystatestore",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "bridge_state_store",
+      "target": "packages_state_src_index_ts_packages_state_src_index_filebackedstatestore"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "readme_overview",
+      "target": "bridge_orchestration_layer"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "readme_overview",
+      "target": "clickup_system_of_record"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "readme_overview",
+      "target": "docs_architecture_clickup_openclaw_architecture"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "readme_overview",
+      "target": "docs_backlog_checklist_clickup_openclaw_backlog_checklist"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "readme_overview",
+      "target": "docs_clickup_task_schema_clickup_task_schema_proposal"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "readme_overview",
+      "target": "docs_plan_clickup_openclaw_integration_plan"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "readme_overview",
+      "target": "observability_layer"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "readme_overview",
+      "target": "openclaw_workboard_runtime"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_architecture_clickup_openclaw_architecture",
+      "target": "bridge_orchestration_layer"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_architecture_clickup_openclaw_architecture",
+      "target": "bridge_state_store"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_architecture_clickup_openclaw_architecture",
+      "target": "clickup_system_of_record"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec",
+      "target": "docs_architecture_clickup_openclaw_architecture"
+    },
+    {
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_architecture_clickup_openclaw_architecture",
+      "target": "docs_plan_clickup_openclaw_integration_plan"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_architecture_clickup_openclaw_architecture",
+      "target": "local_cli_adapter"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_architecture_clickup_openclaw_architecture",
+      "target": "observability_layer"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/architecture.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_architecture_clickup_openclaw_architecture",
+      "target": "openclaw_workboard_runtime"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/backlog-checklist.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_backlog_checklist_clickup_openclaw_backlog_checklist",
+      "target": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_clickup_task_schema_clickup_task_schema_proposal",
+      "target": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec",
+      "target": "automation_eligible_tasks"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec",
+      "target": "clickup_status_mapping"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec",
+      "target": "docs_plan_clickup_openclaw_integration_plan"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec",
+      "target": "idempotent_handoff"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec",
+      "target": "local_cli_adapter"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/openclaw-bridge-spec.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_openclaw_bridge_spec_openclaw_bridge_technical_spec",
+      "target": "observability_layer"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/backlog-checklist.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_backlog_checklist_clickup_openclaw_backlog_checklist",
+      "target": "docs_plan_clickup_openclaw_integration_plan"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_plan_clickup_openclaw_integration_plan",
+      "target": "bridge_orchestration_layer"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_plan_clickup_openclaw_integration_plan",
+      "target": "clickup_system_of_record"
+    },
+    {
+      "relation": "cites",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_plan_clickup_openclaw_integration_plan",
+      "target": "docs_clickup_task_schema_clickup_task_schema_proposal"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_plan_clickup_openclaw_integration_plan",
+      "target": "mvp_reliability"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_plan_clickup_openclaw_integration_plan",
+      "target": "openclaw_workboard_runtime"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_plan_clickup_openclaw_integration_plan",
+      "target": "workspace_shape"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/backlog-checklist.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_backlog_checklist_clickup_openclaw_backlog_checklist",
+      "target": "automation_eligible_tasks"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/backlog-checklist.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_backlog_checklist_clickup_openclaw_backlog_checklist",
+      "target": "idempotent_handoff"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/backlog-checklist.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_backlog_checklist_clickup_openclaw_backlog_checklist",
+      "target": "observability_layer"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_clickup_task_schema_clickup_task_schema_proposal",
+      "target": "human_review_loop"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_clickup_task_schema_clickup_task_schema_proposal",
+      "target": "idempotent_handoff"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/clickup-task-schema.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "docs_clickup_task_schema_clickup_task_schema_proposal",
+      "target": "task_metadata_contract"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "scripts/README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "scripts_readme_scripts",
+      "target": "bridge_orchestration_layer"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "tests/README.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "tests_readme_tests",
+      "target": "idempotent_handoff"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "mvp_reliability",
+      "target": "observability_layer"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docs/plan.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "mvp_reliability",
+      "target": "local_cli_adapter"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "clickup_bridge_runtime_loop",
+      "label": "ClickUp Bridge Runtime Loop",
+      "nodes": [
+        "clickup_system_of_record",
+        "bridge_orchestration_layer",
+        "openclaw_workboard_runtime"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/architecture.md"
+    },
+    {
+      "id": "task_handoff_contract",
+      "label": "Task Handoff Contract",
+      "nodes": [
+        "automation_eligible_tasks",
+        "idempotent_handoff",
+        "clickup_status_mapping",
+        "task_metadata_contract"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/openclaw-bridge-spec.md"
+    }
+  ],
+  "built_at_commit": "e09ed8df49a951eac52487dd168dbdac9a982c5e"
+}
