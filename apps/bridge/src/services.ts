@@ -17,7 +17,11 @@ import {
 import { FileBackedStateStore, InMemoryStateStore, type JobRecord } from "@clickup-openclaw/state";
 
 import type { BridgeConfig } from "./config.js";
-import { OpenClawWorkboardAdapter } from "./openclaw-workboard.js";
+import {
+  OpenClawWorkboardAdapter,
+  type OpenClawWorkboardTransport,
+} from "./openclaw-workboard.js";
+import { OpenClawWebSocketWorkboardAdapter } from "./openclaw-websocket-workboard.js";
 import { resolveRepoUrl } from "./repo-url.js";
 
 type WorkTypeTemplate = {
@@ -83,6 +87,12 @@ type TriageRule = {
   matchListIds: string[] | undefined;
   reason: string | undefined;
   holdForHuman: boolean | undefined;
+};
+
+type MatchingRule = {
+  matchLabels: string[] | undefined;
+  matchStatuses: string[] | undefined;
+  matchListIds: string[] | undefined;
 };
 
 function normalizeKey(value: string): string {
@@ -193,6 +203,64 @@ function priorityBucketScore(bucket: PriorityBucket | undefined): number {
     default:
       return 0;
   }
+}
+
+function averageDurationMs(samples: number[]): number {
+  const validSamples = samples.filter((sample) => Number.isFinite(sample) && sample >= 0);
+  if (validSamples.length === 0) {
+    return 0;
+  }
+
+  return Math.round(validSamples.reduce((sum, sample) => sum + sample, 0) / validSamples.length);
+}
+
+function classifyBlockedCategory(job: Pick<JobRecord, "lastError" | "triageReason" | "deadLetterReason" | "terminalContext">): string {
+  const text = [
+    job.deadLetterReason,
+    job.lastError,
+    job.triageReason,
+    job.terminalContext?.blockerContext,
+  ]
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    text.includes("access") ||
+    text.includes("permission") ||
+    text.includes("credential") ||
+    text.includes("auth") ||
+    text.includes("token")
+  ) {
+    return "access";
+  }
+
+  if (
+    text.includes("dependency") ||
+    text.includes("blocked by") ||
+    text.includes("waiting on") ||
+    text.includes("external") ||
+    text.includes("upstream")
+  ) {
+    return "dependency";
+  }
+
+  if (
+    text.includes("environment") ||
+    text.includes("deploy") ||
+    text.includes("staging") ||
+    text.includes("infra") ||
+    text.includes("gateway") ||
+    text.includes("timeout")
+  ) {
+    return "environment";
+  }
+
+  if (text.includes("review") || text.includes("approval") || text.includes("clarification")) {
+    return "review";
+  }
+
+  return "unknown";
 }
 
 function normalizeStatus(status: string | undefined): string {
@@ -378,38 +446,7 @@ function resolveTriageRule(
   },
   triageRules: Record<string, TriageRule>,
 ): { projectKey: string | undefined; rule: TriageRule | undefined } {
-  const normalizedProjectKey = input.projectKey === undefined ? undefined : normalizeKey(input.projectKey);
-  const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
-  const normalizedStatus = normalizeStatus(input.status);
-  const normalizedTags = normalizeTags(input.tags);
-  const entries = Object.entries(triageRules);
-
-  if (normalizedProjectKey !== undefined) {
-    const directRule = entries.find(([key]) => normalizeKey(key) === normalizedProjectKey);
-    if (directRule !== undefined) {
-      return { projectKey: directRule[0], rule: directRule[1] };
-    }
-  }
-
-  const matched = entries.find(([key, rule]) => {
-    const normalizedKey = normalizeKey(key);
-    const matchLabels = rule.matchLabels?.map(normalizeKey) ?? [];
-    const matchStatuses = rule.matchStatuses?.map(normalizeKey) ?? [];
-    const matchListIds = rule.matchListIds?.map(normalizeKey) ?? [];
-
-    return (
-      normalizedProjectKey === normalizedKey ||
-      (normalizedListId !== undefined && matchListIds.includes(normalizedListId)) ||
-      (normalizedStatus.length > 0 && matchStatuses.includes(normalizedStatus)) ||
-      normalizedTags.some((tag) => matchLabels.includes(tag))
-    );
-  });
-
-  if (matched !== undefined) {
-    return { projectKey: matched[0], rule: matched[1] };
-  }
-
-  return { projectKey: input.projectKey, rule: undefined };
+  return resolveBestMatchingRule(input, triageRules);
 }
 
 function findTemplateByTagMatch(
@@ -494,6 +531,73 @@ function parseProjectRoutingRules(input: string | undefined): Record<string, Pro
   return rules;
 }
 
+function ruleMatchScore(input: {
+  projectKey?: string | undefined;
+  listId?: string | undefined;
+  status?: string | undefined;
+  tags: string[];
+}, rule: MatchingRule): number {
+  const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
+  const normalizedStatus = normalizeStatus(input.status);
+  const normalizedTags = normalizeTags(input.tags);
+  let score = 0;
+
+  if (normalizedListId !== undefined && (rule.matchListIds?.map(normalizeKey).includes(normalizedListId) ?? false)) {
+    score += 100;
+  }
+
+  if (normalizedStatus.length > 0 && (rule.matchStatuses?.map(normalizeKey).includes(normalizedStatus) ?? false)) {
+    score += 10;
+  }
+
+  const tagMatches = normalizedTags.filter((tag) => (rule.matchLabels?.map(normalizeKey).includes(tag) ?? false));
+  score += tagMatches.length;
+
+  return score;
+}
+
+function resolveBestMatchingRule<R extends MatchingRule>(
+  input: {
+    projectKey?: string | undefined;
+    listId?: string | undefined;
+    status?: string | undefined;
+    tags: string[];
+  },
+  rules: Record<string, R>,
+): { projectKey: string | undefined; rule: R | undefined } {
+  const normalizedProjectKey = input.projectKey === undefined ? undefined : normalizeKey(input.projectKey);
+  const entries = Object.entries(rules);
+
+  if (normalizedProjectKey !== undefined) {
+    const directRule = entries.find(([key]) => normalizeKey(key) === normalizedProjectKey);
+    if (directRule !== undefined) {
+      return { projectKey: directRule[0], rule: directRule[1] };
+    }
+  }
+
+  let bestMatch: { projectKey: string; rule: R; score: number } | undefined;
+  for (const [projectKey, rule] of entries) {
+    const score = ruleMatchScore(input, rule);
+    if (score <= 0) {
+      continue;
+    }
+
+    if (
+      bestMatch === undefined ||
+      score > bestMatch.score ||
+      (score === bestMatch.score && normalizeKey(projectKey) < normalizeKey(bestMatch.projectKey))
+    ) {
+      bestMatch = { projectKey, rule, score };
+    }
+  }
+
+  if (bestMatch !== undefined) {
+    return { projectKey: bestMatch.projectKey, rule: bestMatch.rule };
+  }
+
+  return { projectKey: input.projectKey, rule: undefined };
+}
+
 function resolveRoutingRule(
   input: {
     projectKey?: string | undefined;
@@ -503,39 +607,7 @@ function resolveRoutingRule(
   },
   routingRules: Record<string, ProjectRoutingRule>,
 ): { projectKey: string | undefined; rule: ProjectRoutingRule | undefined } {
-  const normalizedProjectKey = input.projectKey === undefined ? undefined : normalizeKey(input.projectKey);
-  const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
-  const normalizedStatus = normalizeStatus(input.status);
-  const normalizedTags = normalizeTags(input.tags);
-
-  const entries = Object.entries(routingRules);
-
-  if (normalizedProjectKey !== undefined) {
-    const directRule = entries.find(([key]) => normalizeKey(key) === normalizedProjectKey);
-    if (directRule !== undefined) {
-      return { projectKey: directRule[0], rule: directRule[1] };
-    }
-  }
-
-  const matched = entries.find(([key, rule]) => {
-    const normalizedKey = normalizeKey(key);
-    const matchLabels = rule.matchLabels?.map(normalizeKey) ?? [];
-    const matchStatuses = rule.matchStatuses?.map(normalizeKey) ?? [];
-    const matchListIds = rule.matchListIds?.map(normalizeKey) ?? [];
-
-    return (
-      normalizedProjectKey === normalizedKey ||
-      (normalizedListId !== undefined && matchListIds.includes(normalizedListId)) ||
-      (normalizedStatus.length > 0 && matchStatuses.includes(normalizedStatus)) ||
-      normalizedTags.some((tag) => matchLabels.includes(tag))
-    );
-  });
-
-  if (matched !== undefined) {
-    return { projectKey: matched[0], rule: matched[1] };
-  }
-
-  return { projectKey: input.projectKey, rule: undefined };
+  return resolveBestMatchingRule(input, routingRules);
 }
 
 function shouldAutoPickTask(input: {
@@ -1058,10 +1130,120 @@ function preserveBridgeState(value: BridgeJobState | undefined): BridgeJobState 
   return undefined;
 }
 
+type BridgeRetryStage = "handoff" | "dispatch" | "sync";
+
+type BridgeRetryPolicy = {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  deadLetterThreshold: number;
+  staleCardAgeMs: number;
+  interruptedRunAgeMs: number;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function extractStatusCode(error: unknown): number | undefined {
+  const message = errorMessage(error);
+  const patterns = [/:\s*(\d{3})(?:\b|$)/, /\bstatus\s+(\d{3})\b/i, /\bHTTP\s+(\d{3})\b/i];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1] !== undefined) {
+      const parsed = Number(match[1]);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function isRetriableBridgeError(error: unknown): boolean {
+  if (error !== null && typeof error === "object" && "retriable" in error) {
+    const retriable = (error as { retriable?: unknown }).retriable;
+    if (typeof retriable === "boolean") {
+      return retriable;
+    }
+  }
+
+  const message = errorMessage(error).toLowerCase();
+  if (
+    message.includes("unrecognized key") ||
+    message.includes("unsupported workboard status") ||
+    message.includes("expected json") ||
+    message.includes("unknown task") ||
+    message.includes("not configured") ||
+    message.includes("has not been handed off")
+  ) {
+    return false;
+  }
+
+  const status = extractStatusCode(error);
+  if (status !== undefined) {
+    return status === 408 || status === 425 || status === 429 || status >= 500;
+  }
+
+  return (
+    message.includes("gateway unavailable") ||
+    message.includes("temporary") ||
+    message.includes("temporarily unavailable") ||
+    message.includes("fetch failed") ||
+    message.includes("socket hang up") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused") ||
+    message.includes("eai_again") ||
+    message.includes("enotfound") ||
+    message.includes("etimedout") ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    message.includes("rate limit")
+  );
+}
+
+function buildRetryDelayMs(attempt: number, policy: BridgeRetryPolicy): number {
+  return Math.min(policy.baseDelayMs * 2 ** Math.max(0, attempt - 1), policy.maxDelayMs);
+}
+
 type BridgeServiceDependencies = {
   stateStore?: FileBackedStateStore | InMemoryStateStore;
-  openClawWorkboard?: OpenClawWorkboardAdapter;
+  openClawWorkboard?: OpenClawWorkboardTransport;
 };
+
+function createOpenClawWorkboardTransport(config: BridgeConfig): OpenClawWorkboardTransport {
+  if (config.OPENCLAW_WORKBOARD_TRANSPORT === "websocket") {
+    if (config.OPENCLAW_WORKBOARD_WS_URL === undefined) {
+      throw new Error("OPENCLAW_WORKBOARD_WS_URL is required when OPENCLAW_WORKBOARD_TRANSPORT=websocket");
+    }
+
+    return new OpenClawWebSocketWorkboardAdapter({
+      url: config.OPENCLAW_WORKBOARD_WS_URL,
+      ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+        ? {}
+        : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+      ...(config.OPENCLAW_WORKBOARD_WS_PROTOCOL === undefined
+        ? {}
+        : { protocols: config.OPENCLAW_WORKBOARD_WS_PROTOCOL }),
+      timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_WS_TIMEOUT_MS, 15_000),
+    });
+  }
+
+  return new OpenClawWorkboardAdapter({
+    ...(config.OPENCLAW_BIN === undefined ? {} : { binary: config.OPENCLAW_BIN }),
+    ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+      ? {}
+      : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+    cwd: process.cwd(),
+    timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS, 30_000),
+  });
+}
 
 export function createBridgeServices(config: BridgeConfig, dependencies: BridgeServiceDependencies = {}) {
   const logger = createLogger("bridge");
@@ -1077,6 +1259,14 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
   const openClawWatchIntervalMs = Number(config.OPENCLAW_WATCH_INTERVAL_MS ?? "15000");
   const queueStallAlertMs = toNumber(config.QUEUE_STALL_ALERT_MS, 10 * 60 * 1000);
   const blockedEscalationMs = toNumber(config.BLOCKED_ESCALATION_MS, 4 * 60 * 60 * 1000);
+  const retryPolicy: BridgeRetryPolicy = {
+    maxAttempts: Math.max(1, toNumber(config.BRIDGE_RETRY_MAX_ATTEMPTS, 3)),
+    baseDelayMs: toNumber(config.BRIDGE_RETRY_BASE_DELAY_MS, 250),
+    maxDelayMs: toNumber(config.BRIDGE_RETRY_MAX_DELAY_MS, 2_000),
+    deadLetterThreshold: Math.max(1, toNumber(config.BRIDGE_DEAD_LETTER_THRESHOLD, 3)),
+    staleCardAgeMs: toNumber(config.BRIDGE_STALE_CARD_AGE_MS, 10 * 60 * 1000),
+    interruptedRunAgeMs: toNumber(config.BRIDGE_INTERRUPTED_RUN_AGE_MS, 30 * 60 * 1000),
+  };
   const projectRoutingRules = parseProjectRoutingRules(config.PROJECT_ROUTING_JSON);
   const workTypeTemplates = parseWorkTypeTemplates(config.WORK_TYPE_TEMPLATES_JSON);
   const workflowTemplates = parseWorkflowTemplates(config.WORKFLOW_TEMPLATES_JSON);
@@ -1105,16 +1295,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
           token: config.CLICKUP_API_TOKEN,
           ...(config.CLICKUP_BASE_URL === undefined ? {} : { baseUrl: config.CLICKUP_BASE_URL }),
         });
-  const openClawWorkboard =
-    dependencies.openClawWorkboard ??
-    new OpenClawWorkboardAdapter({
-      ...(config.OPENCLAW_BIN === undefined ? {} : { binary: config.OPENCLAW_BIN }),
-      ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
-        ? {}
-        : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
-      cwd: process.cwd(),
-      timeoutMs: toNumber(config.OPENCLAW_WORKBOARD_CLI_TIMEOUT_MS, 30_000),
-    });
+  const openClawWorkboard = dependencies.openClawWorkboard ?? createOpenClawWorkboardTransport(config);
 
   function renderTaskSnapshotForWorkboard(job: ReturnType<typeof state.getJob> extends infer T ? T : never): string {
     if (job === undefined) {
@@ -1178,11 +1359,49 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     ].filter((label): label is string => label !== undefined);
   }
 
+  function resolveWorkboardLinks(task: ClickUpTask, routingRule: ProjectRoutingRule | undefined): ArtifactLinks {
+    const next: ArtifactLinks = {};
+    const resolvedRepoUrl = task.repoUrl ?? routingRule?.repoUrl ?? repoUrl;
+    const resolvedPrUrl = task.prUrl ?? routingRule?.prUrl ?? prUrl;
+    const resolvedArtifactUrl = task.artifactUrl ?? routingRule?.artifactUrl ?? artifactUrl;
+    const resolvedDocsUrl = task.docsUrl ?? routingRule?.docsUrl ?? docsUrl;
+    const resolvedDesignUrl = task.designUrl ?? routingRule?.designUrl ?? designUrl;
+
+    if (resolvedRepoUrl !== undefined) {
+      next.repoUrl = resolvedRepoUrl;
+    }
+    if (resolvedPrUrl !== undefined) {
+      next.prUrl = resolvedPrUrl;
+    }
+    if (resolvedArtifactUrl !== undefined) {
+      next.artifactUrl = resolvedArtifactUrl;
+    }
+    if (resolvedDocsUrl !== undefined) {
+      next.docsUrl = resolvedDocsUrl;
+    }
+    if (resolvedDesignUrl !== undefined) {
+      next.designUrl = resolvedDesignUrl;
+    }
+
+    return next;
+  }
+
   function buildBridgeToWorkboardCard(taskId: string): BridgeToWorkboardCard {
     const job = state.getJob(taskId);
     if (job === undefined) {
       throw new Error(`Unknown task ${taskId}`);
     }
+
+    const routing = resolveRoutingRule(
+      {
+        projectKey: job.task.projectKey ?? job.task.routingKey ?? defaultProjectKey,
+        listId: job.task.listId,
+        status: job.task.status,
+        tags: job.task.tags ?? [],
+      },
+      projectRoutingRules,
+    );
+    const links = resolveWorkboardLinks(job.task, routing.rule);
 
     const payload = bridgeToWorkboardCardSchema.parse({
       card: {
@@ -1209,21 +1428,215 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         approvalRequired: job.task.approvalRequired,
         priorityBucket: job.task.priorityBucket,
         tags: job.task.tags,
-        repoUrl: job.task.repoUrl,
-        prUrl: job.task.prUrl,
-        artifactUrl: job.task.artifactUrl,
-        docsUrl: job.task.docsUrl,
-        designUrl: job.task.designUrl,
+        repoUrl: links.repoUrl,
+        prUrl: links.prUrl,
+        artifactUrl: links.artifactUrl,
+        docsUrl: links.docsUrl,
+        designUrl: links.designUrl,
       },
     });
 
     return payload;
   }
 
+  function cardMatchesJob(card: { id: string; raw: Record<string, unknown> }, taskId: string, job: ReturnType<typeof state.getJob>): boolean {
+    const metadata = card.raw.metadata;
+    if (metadata !== undefined && typeof metadata === "object" && !Array.isArray(metadata)) {
+      const record = metadata as Record<string, unknown>;
+      if (record.clickupTaskId === taskId || record.idempotencyKey === `clickup-task:${taskId}`) {
+        return true;
+      }
+      if (job?.handoffPayload?.card.idempotencyKey !== undefined && record.idempotencyKey === job.handoffPayload.card.idempotencyKey) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async function recoverMissingWorkboardCard(taskId: string): Promise<boolean> {
+    const current = state.getJob(taskId);
+    if (current === undefined || current.workboardCardId !== undefined) {
+      return false;
+    }
+
+    const cards = await openClawWorkboard.listCards({
+      ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+        ? {}
+        : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+    });
+    const matched = cards.find((card) => cardMatchesJob(card, taskId, current));
+    if (matched === undefined) {
+      return false;
+    }
+
+    const updatedAt = nowIso();
+    state.mergeJob(taskId, {
+      workboardCardId: matched.id,
+      openClawCardStatus: matched.status ?? current.openClawCardStatus,
+      handoffPayload: current.handoffPayload ?? buildBridgeToWorkboardCard(taskId),
+      bridgeState:
+        matched.status === "running"
+          ? "running"
+          : matched.status === "review" || matched.status === "done" || matched.status === "blocked"
+            ? "completed"
+            : current.bridgeState,
+      updatedAt,
+      lastError: undefined,
+      outcome: undefined,
+    });
+
+    logger.info("recovered missing OpenClaw workboard mapping", {
+      taskId,
+      workboardCardId: matched.id,
+      status: matched.status ?? null,
+    });
+
+    return true;
+  }
+
+  function shouldReconcileJob(job: ReturnType<typeof state.getJob>, now: string): boolean {
+    if (job === undefined) {
+      return false;
+    }
+
+    const ageMs = Number.isFinite(Date.parse(now) - Date.parse(job.updatedAt))
+      ? Date.parse(now) - Date.parse(job.updatedAt)
+      : 0;
+
+    if (job.bridgeState === "card_created") {
+      return job.workboardCardId === undefined || ageMs >= retryPolicy.staleCardAgeMs;
+    }
+
+    if (job.bridgeState === "dispatched" || job.bridgeState === "running") {
+      const missingRuntimeMetadata =
+        job.workboardCardId === undefined ||
+        job.claim?.runId === undefined ||
+        job.dispatchedAt === undefined ||
+        (job.bridgeState === "running" && job.clickupWriteBack?.running?.lastSyncedAt === undefined);
+      return missingRuntimeMetadata || ageMs >= retryPolicy.interruptedRunAgeMs;
+    }
+
+    return false;
+  }
+
+  async function reconcileJob(taskId: string): Promise<Awaited<ReturnType<typeof refreshOpenClawCard>> | undefined> {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      return undefined;
+    }
+
+    if (current.workboardCardId === undefined) {
+      await recoverMissingWorkboardCard(taskId);
+      return undefined;
+    }
+
+    return await refreshOpenClawCard(taskId);
+  }
+
+  async function reconcilePersistedState(): Promise<{ reconciled: number }> {
+    const now = nowIso();
+    let reconciled = 0;
+
+    for (const job of state.listJobs()) {
+      if (!shouldReconcileJob(job, now)) {
+        continue;
+      }
+
+      try {
+        await reconcileJob(job.task.id);
+        reconciled += 1;
+      } catch (error) {
+        logger.warn("failed to reconcile persisted OpenClaw job", {
+          taskId: job.task.id,
+          workboardCardId: job.workboardCardId,
+          error: errorMessage(error),
+        });
+      }
+    }
+
+    return { reconciled };
+  }
+
+  async function runJobOperation<T>(input: {
+    taskId: string;
+    stage: BridgeRetryStage;
+    operation: () => Promise<T>;
+  }): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
+      try {
+        return await input.operation();
+      } catch (error) {
+        lastError = error;
+        const reason = errorMessage(error);
+        const retriable = isRetriableBridgeError(error);
+        const now = nowIso();
+        const current = state.getJob(input.taskId);
+
+        if (current !== undefined) {
+          const nextRetryCount = (current.retryCount ?? 0) + 1;
+          const deadLettered =
+            input.stage !== "sync" &&
+            nextRetryCount >= retryPolicy.deadLetterThreshold &&
+            (!retriable || attempt >= retryPolicy.maxAttempts);
+
+          state.mergeJob(input.taskId, {
+            retryCount: nextRetryCount,
+            lastError: reason,
+            updatedAt: now,
+            ...(deadLettered
+              ? {
+                  bridgeState: "dead_lettered",
+                  outcome: "deadLettered",
+                  deadLetteredAt: now,
+                  deadLetterReason: reason,
+                }
+              : {
+                  outcome: "failed",
+                }),
+          });
+        }
+
+        if (!retriable || attempt >= retryPolicy.maxAttempts) {
+          break;
+        }
+
+        await sleep(buildRetryDelayMs(attempt, retryPolicy));
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`Failed to ${input.stage} job ${input.taskId}`);
+  }
+
   async function handoffJobToOpenClaw(taskId: string) {
     const current = state.getJob(taskId);
     if (current === undefined) {
       throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (current.bridgeState === "dead_lettered") {
+      return {
+        taskId,
+        workboardCardId: current.workboardCardId,
+        status: current.openClawCardStatus,
+        duplicate: true,
+      };
+    }
+
+    await reconcileJob(taskId);
+
+    const refreshed = state.getJob(taskId);
+    if (refreshed?.workboardCardId !== undefined) {
+      return {
+        taskId,
+        workboardCardId: refreshed.workboardCardId,
+        status: refreshed.openClawCardStatus,
+        duplicate: true,
+      };
     }
 
     if (current.workboardCardId !== undefined) {
@@ -1236,7 +1649,11 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     }
 
     const payload = buildBridgeToWorkboardCard(taskId);
-    const created = await openClawWorkboard.createCard(payload);
+    const created = await runJobOperation({
+      taskId,
+      stage: "handoff",
+      operation: async () => openClawWorkboard.createCard(payload),
+    });
     const handedOffAt = nowIso();
 
     state.mergeJob(taskId, {
@@ -1246,6 +1663,8 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       openClawCardStatus: created.status ?? payload.card.status,
       handedOffAt,
       updatedAt: handedOffAt,
+      lastError: undefined,
+      outcome: undefined,
     });
 
     logger.info("job handed off to OpenClaw workboard", {
@@ -1263,21 +1682,80 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
   }
 
   async function dispatchOpenClawWorkboard(input?: { maxStarts?: number | undefined }) {
-    const dispatchedAt = nowIso();
-    const result = await openClawWorkboard.dispatch({
-      ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
-        ? {}
-        : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
-      ...(input?.maxStarts === undefined ? {} : { maxStarts: input.maxStarts }),
-    });
+    let result: Awaited<ReturnType<typeof openClawWorkboard.dispatch>> | undefined;
+    let lastError: unknown;
 
+    for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
+      try {
+        result = await openClawWorkboard.dispatch({
+          ...(config.OPENCLAW_WORKBOARD_BOARD_ID === undefined
+            ? {}
+            : { boardId: config.OPENCLAW_WORKBOARD_BOARD_ID }),
+          ...(input?.maxStarts === undefined ? {} : { maxStarts: input.maxStarts }),
+        });
+        break;
+      } catch (error) {
+        lastError = error;
+        const reason = errorMessage(error);
+        const retriable = isRetriableBridgeError(error);
+        const now = nowIso();
+
+        for (const job of state
+          .listJobs()
+          .filter(
+            (entry) =>
+              (entry.bridgeState === "eligible" || entry.bridgeState === "card_created") &&
+              entry.workboardCardId !== undefined,
+          )) {
+          const nextRetryCount = job.retryCount + 1;
+          const deadLettered =
+            nextRetryCount >= retryPolicy.deadLetterThreshold && (!retriable || attempt >= retryPolicy.maxAttempts);
+
+          state.mergeJob(job.task.id, {
+            retryCount: nextRetryCount,
+            lastError: reason,
+            updatedAt: now,
+            ...(deadLettered
+              ? {
+                  bridgeState: "dead_lettered",
+                  outcome: "deadLettered",
+                  deadLetteredAt: now,
+                  deadLetterReason: reason,
+                }
+              : {
+                  outcome: "failed",
+                }),
+          });
+        }
+
+        if (!retriable || attempt >= retryPolicy.maxAttempts) {
+          break;
+        }
+
+        await sleep(buildRetryDelayMs(attempt, retryPolicy));
+      }
+    }
+
+    if (result === undefined) {
+      throw lastError instanceof Error
+        ? lastError
+        : new Error("Failed to dispatch OpenClaw workboard");
+    }
+
+    const dispatchedAt = nowIso();
     for (const job of state
       .listJobs()
-      .filter((entry) => (entry.bridgeState === "eligible" || entry.bridgeState === "card_created") && entry.workboardCardId !== undefined)) {
+      .filter(
+        (entry) =>
+          (entry.bridgeState === "eligible" || entry.bridgeState === "card_created") &&
+          entry.workboardCardId !== undefined,
+      )) {
       state.mergeJob(job.task.id, {
         bridgeState: "dispatched",
         dispatchedAt,
         updatedAt: dispatchedAt,
+        lastError: undefined,
+        outcome: undefined,
       });
     }
 
@@ -1316,8 +1794,20 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       };
     }
 
+    await reconcileJob(taskId);
+    const refreshed = state.getJob(taskId);
+
+    if (refreshed?.bridgeState === "dead_lettered") {
+      return {
+        taskId,
+        paused: false,
+        handedOff: false,
+        dispatched: false,
+      };
+    }
+
     let handedOff = false;
-    if (current.workboardCardId === undefined) {
+    if (refreshed?.workboardCardId === undefined) {
       await handoffJobToOpenClaw(taskId);
       handedOff = true;
     }
@@ -1374,160 +1864,356 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
   }
 
   async function syncOpenClawCardToClickUp(taskId: string) {
-    const current = state.getJob(taskId);
-    if (current === undefined || current.workboardCardId === undefined) {
-      throw new Error(`Task ${taskId} has not been handed off to OpenClaw`);
-    }
-
-    const refreshed = await refreshOpenClawCard(taskId);
-    const next = state.getJob(taskId);
-    if (refreshed.status === undefined || next === undefined) {
-      return {
-        taskId,
-        workboardCardId: current.workboardCardId,
-        synced: false,
-        reason: "card status unavailable",
-      };
-    }
-
-    const mapping = getWorkboardToClickUpStatusMapping(refreshed.status);
-    const links = resolveArtifactLinks(next.task.projectKey ?? next.task.routingKey, artifactLinks, projectRoutingRules);
-    const updatedAt = nowIso();
-    const terminalContext =
-      refreshed.terminalContext ?? extractOpenClawTerminalContext(refreshed.raw, refreshed.status);
-    const runId =
-      next.claim?.runId ??
-      current.claim?.runId ??
-      readNestedString(refreshed.raw, ["execution", "runId"]) ??
-      "";
-    const comment = buildOpenClawStatusComment(refreshed.status, terminalContext);
-    const currentWriteBack = next.clickupWriteBack;
-    const writeBackTimestamp = updatedAt;
-    const terminalAlreadySynced = currentWriteBack?.terminal?.lastSyncedStatus === refreshed.status;
-    const mergeRunningWriteBack = (patch: Partial<NonNullable<ClickUpWriteBackState["running"]>>) =>
-      updateClickUpWriteBack(taskId, state, (existing) => ({
-        ...(existing ?? {}),
-        running: {
-          ...((existing?.running ?? {}) as NonNullable<ClickUpWriteBackState["running"]>),
-          ...patch,
-        },
-      }));
-    const mergeTerminalWriteBack = (patch: Partial<NonNullable<ClickUpWriteBackState["terminal"]>>) =>
-      updateClickUpWriteBack(taskId, state, (existing) => ({
-        ...(existing ?? {}),
-        terminal: {
-          ...((existing?.terminal ?? {}) as NonNullable<ClickUpWriteBackState["terminal"]>),
-          ...patch,
-        },
-      }));
-
-    if (clickup !== undefined) {
-      if (refreshed.status === "running") {
-        const runningWriteBack = currentWriteBack?.running;
-        const shouldSyncStatus = runningWriteBack?.statusKey !== mapping.clickupStatus;
-
-        if (shouldSyncStatus) {
-          mergeRunningWriteBack({
-            statusKey: mapping.clickupStatus,
-            statusAttemptedAt: writeBackTimestamp,
-          });
-
-          await clickup.updateTaskMetadata(taskId, {
-            status: mapping.clickupStatus,
-            customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
-              automation_state: mapping.automationState,
-              last_error: "",
-              run_id: runId,
-              workboard_id: current.workboardCardId,
-            }),
-          });
-
-          mergeRunningWriteBack({
-            lastSyncedAt: writeBackTimestamp,
-          });
-        }
-
-        const latestRunningWriteBack = state.getJob(taskId)?.clickupWriteBack?.running;
-        if (comment !== undefined && latestRunningWriteBack?.commentKey !== comment) {
-          mergeRunningWriteBack({
-            commentKey: comment,
-            commentAttemptedAt: writeBackTimestamp,
-          });
-
-          await clickup.postTaskComment(taskId, comment);
-        }
-      } else if (mapping.isTerminal) {
-        const terminalWriteBack = currentWriteBack?.terminal;
-        const shouldSyncStatus = terminalWriteBack?.statusKey !== refreshed.status;
-
-        if (shouldSyncStatus) {
-          mergeTerminalWriteBack({
-            statusKey: refreshed.status,
-            statusAttemptedAt: writeBackTimestamp,
-            lastSyncedStatus: refreshed.status,
-            lastSyncedAt: writeBackTimestamp,
-          });
-
-          await clickup.updateTaskMetadata(taskId, {
-            status: mapping.clickupStatus,
-            customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
-              automation_state: mapping.automationState,
-              last_error: refreshed.status === "blocked" ? buildOpenClawTerminalSummary("blocked", terminalContext) : "",
-              run_id: runId,
-              workboard_id: current.workboardCardId,
-            }),
-          });
-        }
-
-        const latestTerminalWriteBack = state.getJob(taskId)?.clickupWriteBack?.terminal;
-        if (comment !== undefined && !terminalAlreadySynced && latestTerminalWriteBack?.commentKey !== comment) {
-          mergeTerminalWriteBack({
-            commentKey: comment,
-            commentAttemptedAt: writeBackTimestamp,
-          });
-
-          await clickup.postTaskComment(taskId, comment);
-        }
-      }
-    }
-
-    state.mergeJob(taskId, {
-      bridgeState: mapping.isTerminal ? "synced_back" : next.bridgeState,
-      openClawCardStatus: refreshed.status,
-      updatedAt,
-      ...(mapping.isTerminal
-        ? {
-            terminalAt: updatedAt,
-            outcome:
-              isBlockedWorkboardStatus(refreshed.status)
-                ? "blocked"
-                : isHumanReviewWorkboardStatus(refreshed.status)
-                  ? "succeeded"
-                  : next.outcome,
-          }
-        : {}),
-    });
-
-    logger.info("synced OpenClaw card status back to ClickUp", {
+    return runJobOperation({
       taskId,
-      workboardCardId: current.workboardCardId,
-      previousStatus: current.openClawCardStatus ?? null,
-      status: refreshed.status,
-      clickupStatus: mapping.clickupStatus,
+      stage: "sync",
+      operation: async () => {
+        const current = state.getJob(taskId);
+        if (current === undefined || current.workboardCardId === undefined) {
+          throw new Error(`Task ${taskId} has not been handed off to OpenClaw`);
+        }
+
+        const refreshed = await refreshOpenClawCard(taskId);
+        const next = state.getJob(taskId);
+        if (refreshed.status === undefined || next === undefined) {
+          return {
+            taskId,
+            workboardCardId: current.workboardCardId,
+            synced: false,
+            reason: "card status unavailable",
+          };
+        }
+
+        const mapping = getWorkboardToClickUpStatusMapping(refreshed.status);
+        const links = resolveArtifactLinks(
+          next.task.projectKey ?? next.task.routingKey,
+          artifactLinks,
+          projectRoutingRules,
+        );
+        const updatedAt = nowIso();
+        const terminalContext =
+          refreshed.terminalContext ?? extractOpenClawTerminalContext(refreshed.raw, refreshed.status);
+        const runId =
+          next.claim?.runId ??
+          current.claim?.runId ??
+          readNestedString(refreshed.raw, ["execution", "runId"]) ??
+          "";
+        const comment = buildOpenClawStatusComment(refreshed.status, terminalContext);
+        const currentWriteBack = next.clickupWriteBack;
+        const writeBackTimestamp = updatedAt;
+        const terminalAlreadySynced = currentWriteBack?.terminal?.lastSyncedStatus === refreshed.status;
+        const mergeRunningWriteBack = (patch: Partial<NonNullable<ClickUpWriteBackState["running"]>>) =>
+          updateClickUpWriteBack(taskId, state, (existing) => ({
+            ...(existing ?? {}),
+            running: {
+              ...((existing?.running ?? {}) as NonNullable<ClickUpWriteBackState["running"]>),
+              ...patch,
+            },
+          }));
+        const mergeTerminalWriteBack = (patch: Partial<NonNullable<ClickUpWriteBackState["terminal"]>>) =>
+          updateClickUpWriteBack(taskId, state, (existing) => ({
+            ...(existing ?? {}),
+            terminal: {
+              ...((existing?.terminal ?? {}) as NonNullable<ClickUpWriteBackState["terminal"]>),
+              ...patch,
+            },
+          }));
+
+        if (clickup !== undefined) {
+          if (refreshed.status === "running") {
+            const runningWriteBack = currentWriteBack?.running;
+            const shouldSyncStatus = runningWriteBack?.statusKey !== mapping.clickupStatus;
+
+            if (shouldSyncStatus) {
+              mergeRunningWriteBack({
+                statusKey: mapping.clickupStatus,
+                statusAttemptedAt: writeBackTimestamp,
+              });
+
+              await clickup.updateTaskMetadata(taskId, {
+                status: mapping.clickupStatus,
+                customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
+                  automation_state: mapping.automationState,
+                  last_error: "",
+                  run_id: runId,
+                  workboard_id: current.workboardCardId,
+                }),
+              });
+
+              mergeRunningWriteBack({
+                lastSyncedAt: writeBackTimestamp,
+              });
+            }
+
+            const latestRunningWriteBack = state.getJob(taskId)?.clickupWriteBack?.running;
+            if (comment !== undefined && latestRunningWriteBack?.commentKey !== comment) {
+              mergeRunningWriteBack({
+                commentKey: comment,
+                commentAttemptedAt: writeBackTimestamp,
+              });
+
+              await clickup.postTaskComment(taskId, comment);
+            }
+          } else if (mapping.isTerminal) {
+            const terminalWriteBack = currentWriteBack?.terminal;
+            const shouldSyncStatus = terminalWriteBack?.statusKey !== refreshed.status;
+
+            if (shouldSyncStatus) {
+              mergeTerminalWriteBack({
+                statusKey: refreshed.status,
+                statusAttemptedAt: writeBackTimestamp,
+                lastSyncedStatus: refreshed.status,
+                lastSyncedAt: writeBackTimestamp,
+              });
+
+              await clickup.updateTaskMetadata(taskId, {
+                status: mapping.clickupStatus,
+                customFields: buildTaskWriteBackFields(next.task, updatedAt, links, {
+                  automation_state: mapping.automationState,
+                  last_error:
+                    refreshed.status === "blocked"
+                      ? buildOpenClawTerminalSummary("blocked", terminalContext)
+                      : "",
+                  run_id: runId,
+                  workboard_id: current.workboardCardId,
+                }),
+              });
+            }
+
+            const latestTerminalWriteBack = state.getJob(taskId)?.clickupWriteBack?.terminal;
+            if (comment !== undefined && !terminalAlreadySynced && latestTerminalWriteBack?.commentKey !== comment) {
+              mergeTerminalWriteBack({
+                commentKey: comment,
+                commentAttemptedAt: writeBackTimestamp,
+              });
+
+              await clickup.postTaskComment(taskId, comment);
+            }
+          }
+        }
+
+        state.mergeJob(taskId, {
+          bridgeState: mapping.isTerminal ? "synced_back" : next.bridgeState,
+          openClawCardStatus: refreshed.status,
+          updatedAt,
+          lastError: undefined,
+          outcome: mapping.isTerminal
+            ? isBlockedWorkboardStatus(refreshed.status)
+              ? "blocked"
+              : isHumanReviewWorkboardStatus(refreshed.status)
+                ? "succeeded"
+                : next.outcome
+            : undefined,
+          ...(mapping.isTerminal
+            ? {
+                terminalAt: updatedAt,
+              }
+            : {}),
+        });
+
+        logger.info("synced OpenClaw card status back to ClickUp", {
+          taskId,
+          workboardCardId: current.workboardCardId,
+          previousStatus: current.openClawCardStatus ?? null,
+          status: refreshed.status,
+          clickupStatus: mapping.clickupStatus,
+        });
+
+        return {
+          taskId,
+          workboardCardId: current.workboardCardId,
+          status: refreshed.status,
+          clickupStatus: mapping.clickupStatus,
+          synced: true,
+        };
+      },
     });
+  }
+
+  async function writeOperatorClickUpState(
+    taskId: string,
+    input: {
+      status: "blocked" | "human-review";
+      reason?: string | undefined;
+      updatedAt: string;
+    },
+  ): Promise<void> {
+    if (clickup === undefined) {
+      return;
+    }
+
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      return;
+    }
+
+    const links = resolveArtifactLinks(
+      current.task.projectKey ?? current.task.routingKey,
+      artifactLinks,
+      projectRoutingRules,
+    );
+    const automationState = input.status === "blocked" ? "blocked" : "done";
+    const comment =
+      input.status === "blocked"
+        ? input.reason === undefined
+          ? "OpenClaw blocked this task and needs human input before continuing."
+          : `OpenClaw blocked this task.\nReason: ${input.reason}`
+        : input.reason === undefined
+          ? "OpenClaw returned this task for human review."
+          : `OpenClaw returned this task for human review.\nNote: ${input.reason}`;
+
+    await clickup.updateTaskMetadata(taskId, {
+      status: input.status === "blocked" ? "blocked" : "human-review",
+      customFields: buildTaskWriteBackFields(current.task, input.updatedAt, links, {
+        automation_state: automationState,
+        last_error: input.reason ?? "",
+        run_id: current.claim?.runId ?? "",
+        workboard_id: current.workboardCardId,
+      }),
+    });
+
+    await clickup.postTaskComment(taskId, comment);
+  }
+
+  async function redispatchEligibleJob(taskId: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (current.bridgeState !== "eligible" && current.bridgeState !== "card_created") {
+      throw new Error(`Task ${taskId} is not eligible for dispatch`);
+    }
+
+    return await autoHandoffAndDispatchEligibleJob(taskId);
+  }
+
+  async function requeueJob(taskId: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (
+      current.bridgeState === "eligible" ||
+      current.bridgeState === "card_created" ||
+      current.bridgeState === "dispatched" ||
+      current.bridgeState === "running"
+    ) {
+      throw new Error(`Task ${taskId} is already active`);
+    }
+
+    const updatedAt = nowIso();
+    state.mergeJob(taskId, {
+      state: "eligible",
+      bridgeState: "eligible",
+      claim: undefined,
+      handoffPayload: undefined,
+      workboardCardId: undefined,
+      openClawCardStatus: undefined,
+      clickupWriteBack: undefined,
+      handedOffAt: undefined,
+      dispatchedAt: undefined,
+      blockedAt: undefined,
+      terminalAt: undefined,
+      outcome: undefined,
+      deadLetteredAt: undefined,
+      deadLetterReason: undefined,
+      retryCount: 0,
+      lastError: undefined,
+      updatedAt,
+    });
+
+    logger.info("task requeued for OpenClaw", { taskId });
 
     return {
       taskId,
-      workboardCardId: current.workboardCardId,
-      status: refreshed.status,
-      clickupStatus: mapping.clickupStatus,
-      synced: true,
+      requeued: true,
+      updatedAt,
+    };
+  }
+
+  async function markJobBlocked(taskId: string, reason: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (
+      current.bridgeState !== "eligible" &&
+      current.bridgeState !== "card_created" &&
+      current.bridgeState !== "dispatched" &&
+      current.bridgeState !== "running"
+    ) {
+      throw new Error(`Task ${taskId} is not active`);
+    }
+
+    const updatedAt = nowIso();
+    state.mergeJob(taskId, {
+      state: "blocked",
+      bridgeState: "blocked",
+      openClawCardStatus: "blocked",
+      blockedAt: updatedAt,
+      terminalAt: updatedAt,
+      outcome: "blocked",
+      lastError: reason,
+      updatedAt,
+    });
+
+    await writeOperatorClickUpState(taskId, { status: "blocked", reason, updatedAt });
+
+    logger.info("task marked blocked by operator", { taskId, reason });
+
+    return {
+      taskId,
+      blocked: true,
+      reason,
+      updatedAt,
+    };
+  }
+
+  async function forceHumanReviewJob(taskId: string, reason?: string) {
+    const current = state.getJob(taskId);
+    if (current === undefined) {
+      throw new Error(`Unknown task ${taskId}`);
+    }
+
+    if (
+      current.bridgeState !== "dispatched" &&
+      current.bridgeState !== "running" &&
+      current.bridgeState !== "blocked"
+    ) {
+      throw new Error(`Task ${taskId} is not ready for human review`);
+    }
+
+    const updatedAt = nowIso();
+    state.mergeJob(taskId, {
+      bridgeState: "synced_back",
+      openClawCardStatus: "review",
+      terminalAt: updatedAt,
+      outcome: "succeeded",
+      lastError: undefined,
+      updatedAt,
+    });
+
+    await writeOperatorClickUpState(taskId, { status: "human-review", reason, updatedAt });
+
+    logger.info("task forced into human review", { taskId, reason: reason ?? null });
+
+    return {
+      taskId,
+      forced: true,
+      updatedAt,
     };
   }
 
   async function watchOpenClawCards() {
     const jobs = state.listJobs().filter(
-      (job) => job.workboardCardId !== undefined && job.bridgeState !== "synced_back",
+      (job) =>
+        job.workboardCardId !== undefined &&
+        job.bridgeState !== "synced_back" &&
+        job.bridgeState !== "dead_lettered" &&
+        job.bridgeState !== "blocked",
     );
     const results: Array<Record<string, unknown>> = [];
 
@@ -1656,6 +2342,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       workflowTemplateLabel !== undefined && decompositionSteps.length > 0
         ? renderDecompositionPlan(workflowTemplateLabel, decompositionSteps)
         : undefined;
+    const links = resolveWorkboardLinks(input.task, routing.rule);
     const triageReason =
       triage.rule?.reason ??
       (triage.rule !== undefined
@@ -1692,16 +2379,16 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         autoPicked,
         priority: input.task.priority,
         description: input.task.description,
-        repoUrl: input.task.repoUrl ?? repoUrl,
-        prUrl: input.task.prUrl ?? prUrl,
+        repoUrl: links.repoUrl,
+        prUrl: links.prUrl,
         branchName: input.task.branchName,
         commitSha: input.task.commitSha,
         commitUrl: input.task.commitUrl,
         prNumber: input.task.prNumber,
         updatedAt: input.task.updatedAt,
-        artifactUrl: input.task.artifactUrl ?? artifactUrl,
-        docsUrl: input.task.docsUrl ?? docsUrl,
-        designUrl: input.task.designUrl ?? designUrl,
+        artifactUrl: links.artifactUrl,
+        docsUrl: links.docsUrl,
+        designUrl: links.designUrl,
         triageReason,
         tags: mergedTags,
       },
@@ -1866,7 +2553,17 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
 
     const cardLifecycleCounts = jobs.reduce<Record<string, number>>((counts, job) => {
       const status = job.openClawCardStatus ?? job.bridgeState;
-      if (status === "eligible" || status === "card_created" || status === "dispatched" || status === "running" || status === "review" || status === "done" || status === "blocked" || status === "synced_back") {
+      if (
+        status === "eligible" ||
+        status === "card_created" ||
+        status === "dispatched" ||
+        status === "running" ||
+        status === "review" ||
+        status === "done" ||
+        status === "blocked" ||
+        status === "synced_back" ||
+        status === "dead_lettered"
+      ) {
         counts[status] = (counts[status] ?? 0) + 1;
       }
       return counts;
@@ -1904,11 +2601,25 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       return counts;
     }, {});
 
+    const routingKeyCounts = jobs.reduce<Record<string, number>>((counts, job) => {
+      const routingKey = job.task.routingKey ?? "unclassified";
+      counts[routingKey] = (counts[routingKey] ?? 0) + 1;
+      return counts;
+    }, {});
+
     const priorityBucketCounts = jobs.reduce<Record<string, number>>((counts, job) => {
       const priorityBucket = job.task.priorityBucket ?? "unclassified";
       counts[priorityBucket] = (counts[priorityBucket] ?? 0) + 1;
       return counts;
     }, {});
+
+    const blockedCategoryCounts = jobs
+      .filter((job) => job.outcome === "blocked")
+      .reduce<Record<string, number>>((counts, job) => {
+        const category = classifyBlockedCategory(job);
+        counts[category] = (counts[category] ?? 0) + 1;
+        return counts;
+      }, {});
 
     const autoPickedJobs = jobs.filter((job) => job.task.autoPicked === true).length;
     const approvalRequiredJobs = jobs.filter((job) => job.task.approvalRequired === true).length;
@@ -1918,6 +2629,24 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     const deadLetteredJobs = jobs.filter((job) => job.outcome === "deadLettered").length;
     const handoffFailures = jobs.filter((job) => job.outcome === "failed" && job.dispatchedAt === undefined).length;
     const dispatchFailures = jobs.filter((job) => job.outcome === "failed" && job.dispatchedAt !== undefined).length;
+    const queueWaitMs = averageDurationMs(
+      jobs.map((job) => {
+        if (job.handedOffAt === undefined || job.dispatchedAt === undefined) {
+          return NaN;
+        }
+
+        return Date.parse(job.dispatchedAt) - Date.parse(job.handedOffAt);
+      }),
+    );
+    const runningDurationMs = averageDurationMs(
+      jobs.map((job) => {
+        if (job.dispatchedAt === undefined || job.terminalAt === undefined) {
+          return NaN;
+        }
+
+        return Date.parse(job.terminalAt) - Date.parse(job.dispatchedAt);
+      }),
+    );
 
     return {
       now,
@@ -1930,7 +2659,9 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       cardLifecycleCounts,
       jobCounts,
       workTypeCounts,
+      routingKeyCounts,
       priorityBucketCounts,
+      blockedCategoryCounts,
       autoPickedJobs,
       approvalRequiredJobs,
       syncLagMs: oldestUnsyncedAgeMs,
@@ -1942,9 +2673,13 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         deadLetteredJobs,
         dispatchFailures,
         handoffFailures,
+        queueWaitMs,
+        runningDurationMs,
       },
       latency: {
         averageDispatchToTerminalMs,
+        averageQueueWaitMs: queueWaitMs,
+        averageRunningDurationMs: runningDurationMs,
         oldestUnsyncedAgeMs,
       },
       thresholds: {
@@ -1992,6 +2727,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       const succeeded = items.filter((job) => job.outcome === "succeeded").length;
       const blocked = items.filter((job) => job.outcome === "blocked").length;
       const failed = items.filter((job) => job.outcome === "failed").length;
+      const deadLettered = items.filter((job) => job.outcome === "deadLettered").length;
       return {
         workType,
         total: items.length,
@@ -1999,6 +2735,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         succeeded,
         blocked,
         failed,
+        deadLettered,
         completionRate: items.length === 0 ? 0 : Number((terminal.length / items.length).toFixed(2)),
         successRate: items.length === 0 ? 0 : Number((succeeded / items.length).toFixed(2)),
       };
@@ -2020,6 +2757,37 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       deadLettered: items.filter((job) => job.outcome === "deadLettered").length,
     }));
 
+    const byRoutingKey = Object.entries(
+      jobs.reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
+        const routingKey = job.task.routingKey ?? "unclassified";
+        groups[routingKey] = groups[routingKey] ?? [];
+        groups[routingKey].push(job);
+        return groups;
+      }, {}),
+    ).map(([routingKey, items]) => ({
+      routingKey,
+      total: items.length,
+      succeeded: items.filter((job) => job.outcome === "succeeded").length,
+      blocked: items.filter((job) => job.outcome === "blocked").length,
+      failed: items.filter((job) => job.outcome === "failed").length,
+      deadLettered: items.filter((job) => job.outcome === "deadLettered").length,
+    }));
+
+    const byBlockedCategory = Object.entries(
+      jobs
+        .filter((job) => job.outcome === "blocked")
+        .reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
+          const category = classifyBlockedCategory(job);
+          groups[category] = groups[category] ?? [];
+          groups[category].push(job);
+          return groups;
+        }, {}),
+    ).map(([category, items]) => ({
+      category,
+      total: items.length,
+      taskIds: items.map((job) => job.task.id),
+    }));
+
     const byPriorityBucket = Object.entries(
       jobs.reduce<Record<string, Array<(typeof jobs)[number]>>>((groups, job) => {
         const priorityBucket = job.task.priorityBucket ?? "unclassified";
@@ -2034,6 +2802,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       succeeded: items.filter((job) => job.outcome === "succeeded").length,
       failed: items.filter((job) => job.outcome === "failed").length,
       blocked: items.filter((job) => job.outcome === "blocked").length,
+      deadLettered: items.filter((job) => job.outcome === "deadLettered").length,
     }));
 
     const failureRate =
@@ -2041,6 +2810,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
 
     return {
       now,
+      transport: openClawWorkboard.getTransportSnapshot(),
       queueHealth: {
         cardsQueued: metrics.cardsQueued,
         cardsCreated: metrics.cardsCreated,
@@ -2072,7 +2842,9 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         successRate: jobs.length === 0 ? 0 : Number((successfulJobs.length / jobs.length).toFixed(2)),
         byWorkType,
         byProject,
+        byRoutingKey,
         byPriorityBucket,
+        byBlockedCategory,
       },
     };
   }
@@ -2086,6 +2858,10 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     syncList,
     buildBridgeToWorkboardCard,
     handoffJobToOpenClaw,
+    redispatchEligibleJob,
+    requeueJob,
+    markJobBlocked,
+    forceHumanReviewJob,
     dispatchOpenClawWorkboard,
     refreshOpenClawCard,
     syncOpenClawCardToClickUp,
@@ -2093,6 +2869,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     pauseWork,
     resumeWork,
     getControlState,
+    reconcilePersistedState,
     openClawWatchIntervalMs,
     queueStallAlertMs,
     getMetricsSnapshot,

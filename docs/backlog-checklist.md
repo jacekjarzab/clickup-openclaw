@@ -110,27 +110,76 @@ This is the living build checklist. Update it as we complete items and discover 
 
 ## Phase 6: Reliability
 
-- [ ] Add retry policy for transient ClickUp, Gateway, or CLI failures
-- [ ] Add dead-letter handling for repeated handoff failures
-- [ ] Add detection for stale Workboard cards and interrupted runs
+ - [x] Add retry policy for transient ClickUp, Gateway, or CLI failures
+  - Classify retriable errors for ClickUp API, OpenClaw CLI, and local Gateway outages
+  - Apply bounded exponential backoff with a fixed max attempt count
+  - Retry handoff, dispatch, and sync separately so one failure does not poison the whole job
+  - Add tests for retryable network failure, non-retryable contract error, and exhausted retry budget
+ - [x] Add dead-letter handling for repeated handoff failures
+  - Track retry count and last failure reason on the Bridge job
+  - Mark jobs dead-lettered after the configured threshold
+  - Preserve the failure context for operator review instead of dropping the job
+  - Add tests for handoff failure, repeated dispatch failure, and dead-letter persistence
+ - [x] Add detection for stale Workboard cards and interrupted runs
+  - Detect jobs stuck in `card_created`, `dispatched`, or `running` beyond their expected age
+  - Detect cards with missing or stale `run_id`, `workboard_id`, or `last_sync_at`
+  - Trigger reread and reconciliation before creating or dispatching anything new
+  - Add tests for stale-card detection and interrupted-run recovery
 - [x] Add visibility into dispatch failures, queue stalls, and sync lag
-- [ ] Add restart-safe reconciliation so Bridge can resume after crashes without duplicate card creation
+  - Keep the queue and dashboard counters in sync with retry and dead-letter outcomes
+ - [x] Add restart-safe reconciliation so Bridge can resume after crashes without duplicate card creation
+  - Reload persisted Bridge state on startup
+  - Re-read Workboard state for every mapped card before resuming dispatch or sync
+  - Reuse the stored idempotency key and workboard mapping after a crash
+  - Add tests for crash recovery, duplicate avoidance, and restart-safe sync replay
 
 ## Phase 7: Operator Controls
 
-- [ ] Add manual re-dispatch for eligible cards
+- [x] Add manual re-dispatch for eligible cards
+  - Add an operator endpoint or CLI command that dispatches a single eligible `card_created`/`eligible` job without waiting for the normal watcher loop
+  - Reject re-dispatch when the job is already `dispatched`, `running`, `synced_back`, or `dead_lettered`
+  - Reuse the existing workboard card mapping and idempotency key instead of creating a new card
+  - Add tests for successful re-dispatch, duplicate prevention, and invalid-state rejection
 - [x] Add a force-sync path from Workboard back to ClickUp
-- [ ] Add a requeue path for tasks returned from review or failure
-- [ ] Add a mark-blocked path with reason text
-- [ ] Add a force-human-review path when OpenClaw output should be inspected without further automation
+  - Implemented via `POST /openclaw/:taskId/sync`
+  - Keep the path able to reread the current card state and push comments/status back to ClickUp
+- [x] Add a requeue path for tasks returned from review or failure
+  - Allow an operator to move a `synced_back`, `blocked`, `failed`, or `dead_lettered` job back to the eligible queue
+  - Clear terminal state, stale retry metadata, and dead-letter markers while preserving the historical event trail
+  - Prevent requeue if the task is already active or missing required ClickUp/OpenClaw identifiers
+  - Add tests for requeue from review, requeue from failure, and duplicate-queue prevention
+- [x] Add a mark-blocked path with reason text
+  - Accept a human reason string and record it on the job
+  - Write the blocked outcome back to ClickUp with a clear operator-facing note
+  - Stop automatic dispatch for the job until an operator explicitly requeues it
+  - Add tests for blocked write-back, blocked comment content, and requeue-after-block behavior
+- [x] Add a force-human-review path when OpenClaw output should be inspected without further automation
+  - Move a job into `synced_back` / human-review flow without marking it as blocked
+  - Preserve the latest OpenClaw summary, proof, and artifact links in ClickUp
+  - Ensure the job stays out of the automatic dispatch queue after the forced review handoff
+  - Add tests for forced review write-back and queue exclusion
 
 ## Phase 8: Quality and Scale
 
-- [ ] Support multiple ClickUp lists, folders, or projects with the same Bridge rules
-- [ ] Support per-project routing labels and metadata on Workboard cards
+- [x] Define a multi-project routing model for ClickUp lists, folders, and projects
+  - Decide how Bridge resolves routing when multiple project scopes match one task
+  - Keep the routing rules deterministic and testable
+- [x] Support multiple ClickUp lists, folders, or projects with the same Bridge rules
+  - Prove the same Bridge config can handle more than one project tree
+  - Add regression tests for cross-project isolation
+- [x] Support per-project routing labels and metadata on Workboard cards
+  - Write project-specific labels, tags, or routing metadata during handoff
+  - Confirm the metadata survives rereads and sync loops
 - [x] Add dashboards for queue health, sync lag, and completion rates
-- [ ] Add reporting for card lifecycle throughput and blocked-task categories
-- [ ] Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
+- [x] Add reporting for card lifecycle throughput and blocked-task categories
+  - Track handoff-to-running, running-to-terminal, and queue wait times
+  - Break blocked outcomes into useful categories, not just a single bucket
+- [x] Evaluate a phase-2 WebSocket RPC transport to replace or supplement CLI polling
+  - Measure the current CLI baseline for create, show, list, and dispatch operations
+  - Define the transport contract the Bridge would need from a WebSocket client
+  - Compare latency, reconnect behavior, and operational overhead against the CLI path
+  - Define what would justify adopting it as an optional transport
+  - Implemented: the Bridge can now switch between CLI and websocket transports via config, and the websocket adapter reports transport telemetry for comparison
 
 ## Replaced or Removed Work
 
