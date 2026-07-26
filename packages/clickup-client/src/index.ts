@@ -155,18 +155,29 @@ export function createClickUpClient(options: ClickUpClientOptions) {
     return undefined;
   }
 
-  function parseNumberField(value: unknown): number | undefined {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
+function parseNumberField(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
 
-    if (typeof value === "string") {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
 
+  return undefined;
+}
+
+function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
+  if (typeof value !== "string") {
     return undefined;
   }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "low" || normalized === "normal" || normalized === "high" || normalized === "urgent"
+    ? normalized
+    : undefined;
+}
 
   return {
     async getTask(taskId: string): Promise<ClickUpTask> {
@@ -184,7 +195,6 @@ export function createClickUpClient(options: ClickUpClientOptions) {
             description?: string;
             date_updated?: string;
             updated_at?: string;
-            tags?: Array<{ name: string }>;
             custom_fields?: Array<{ id: string; value?: unknown }>;
           };
           const repoUrlField = body.custom_fields?.find((field) => field.id === "repo_url");
@@ -201,18 +211,10 @@ export function createClickUpClient(options: ClickUpClientOptions) {
             (field) => field.id === "approval_required",
           );
           const triageReasonField = body.custom_fields?.find((field) => field.id === "triage_reason");
-          const priorityBucketField = body.custom_fields?.find(
-            (field) => field.id === "priority_bucket",
-          );
           const branchNameField = body.custom_fields?.find((field) => field.id === "branch_name");
           const commitShaField = body.custom_fields?.find((field) => field.id === "commit_sha");
           const commitUrlField = body.custom_fields?.find((field) => field.id === "commit_url");
           const prNumberField = body.custom_fields?.find((field) => field.id === "pr_number");
-
-          const priorityBucket =
-            typeof priorityBucketField?.value === "string"
-              ? (priorityBucketField.value as PriorityBucket)
-              : undefined;
 
           return {
             id: body.id,
@@ -223,7 +225,7 @@ export function createClickUpClient(options: ClickUpClientOptions) {
             workType: typeof workTypeField?.value === "string" ? workTypeField.value : undefined,
             automationAllowed: parseBooleanField(automationAllowedField?.value),
             approvalRequired: parseBooleanField(approvalRequiredField?.value),
-            priorityBucket,
+            priorityBucket: parsePriorityBucket(body.priority),
             branchName: typeof branchNameField?.value === "string" ? branchNameField.value : undefined,
             commitSha: typeof commitShaField?.value === "string" ? commitShaField.value : undefined,
             commitUrl: typeof commitUrlField?.value === "string" ? commitUrlField.value : undefined,
@@ -239,7 +241,6 @@ export function createClickUpClient(options: ClickUpClientOptions) {
               typeof artifactUrlField?.value === "string" ? artifactUrlField.value : undefined,
             docsUrl: typeof docsUrlField?.value === "string" ? docsUrlField.value : undefined,
             designUrl: typeof designUrlField?.value === "string" ? designUrlField.value : undefined,
-            tags: body.tags?.map((tag) => tag.name) ?? [],
           };
         },
       );
@@ -284,7 +285,6 @@ export function createClickUpClient(options: ClickUpClientOptions) {
                     description?: string;
                     date_updated?: string;
                     updated_at?: string;
-                    tags?: Array<{ name: string }>;
                     custom_fields?: Array<{ id: string; value?: unknown }>;
                   }>;
                   last_page?: boolean;
@@ -298,7 +298,6 @@ export function createClickUpClient(options: ClickUpClientOptions) {
                   description?: string;
                   date_updated?: string;
                   updated_at?: string;
-                  tags?: Array<{ name: string }>;
                   custom_fields?: Array<{ id: string; value?: unknown }>;
                 }>;
 
@@ -313,7 +312,6 @@ export function createClickUpClient(options: ClickUpClientOptions) {
                   priority: taskBody.priority,
                   description: taskBody.description,
                   updatedAt: taskBody.date_updated ?? taskBody.updated_at,
-                  tags: taskBody.tags?.map((tag) => tag.name) ?? [],
                 } as ClickUpTask,
               );
             }

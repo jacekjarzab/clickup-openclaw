@@ -36,7 +36,6 @@ Bridge owns orchestration state and OpenClaw owns execution state.
   - `automationAllowed`
   - `approvalRequired`
   - `priorityBucket`
-  - `tags`
   - useful artifact links already known at handoff time
 - OpenClaw Workboard returns runtime truth:
   - card status

@@ -32,7 +32,6 @@ type WorkTypeTemplate = {
   constraints: string[] | undefined;
   links: string[] | undefined;
   notes: string[] | undefined;
-  matchTags: string[] | undefined;
   steps: string[] | undefined;
 };
 
@@ -68,13 +67,9 @@ type ArtifactLinks = {
 };
 
 type ProjectRoutingRule = ArtifactLinks & {
-  matchLabels: string[] | undefined;
   matchStatuses: string[] | undefined;
   matchListIds: string[] | undefined;
-  autoPickLabels: string[] | undefined;
   autoPickStatuses: string[] | undefined;
-  approvalLabels: string[] | undefined;
-  approvalStatuses: string[] | undefined;
   approvalRequired: boolean | undefined;
   workType: string | undefined;
   priorityBucket: PriorityBucket | undefined;
@@ -82,7 +77,6 @@ type ProjectRoutingRule = ArtifactLinks & {
 };
 
 type TriageRule = {
-  matchLabels: string[] | undefined;
   matchStatuses: string[] | undefined;
   matchListIds: string[] | undefined;
   reason: string | undefined;
@@ -90,7 +84,6 @@ type TriageRule = {
 };
 
 type MatchingRule = {
-  matchLabels: string[] | undefined;
   matchStatuses: string[] | undefined;
   matchListIds: string[] | undefined;
 };
@@ -152,7 +145,6 @@ function parseWorkTypeTemplates(input: string | undefined): Record<string, WorkT
       constraints: readStringArray(template.constraints),
       links: readStringArray(template.links),
       notes: readStringArray(template.notes),
-      matchTags: readStringArray(template.matchTags),
       steps: readStringArray(template.steps),
     };
   }
@@ -179,7 +171,6 @@ function parseTriageRules(input: string | undefined): Record<string, TriageRule>
 
     const rule = rawRule as Record<string, unknown>;
     rules[normalizeKey(projectKey)] = {
-      matchLabels: readStringArray(rule.matchLabels),
       matchStatuses: readStringArray(rule.matchStatuses),
       matchListIds: readStringArray(rule.matchListIds),
       reason: readString(rule.reason),
@@ -267,33 +258,12 @@ function normalizeStatus(status: string | undefined): string {
   return normalizeKey(status ?? "");
 }
 
-function normalizeTags(tags: string[]): string[] {
-  return tags.map(normalizeKey);
-}
-
-function extractPayloadTags(payload: Record<string, unknown> | undefined): string[] {
-  if (payload === undefined) {
-    return [];
-  }
-
-  const rawTags = payload.labels ?? payload.tags ?? payload.categories;
-  return readStringArray(rawTags);
-}
-
 function extractPayloadProjectKey(payload: Record<string, unknown> | undefined): string | undefined {
   if (payload === undefined) {
     return undefined;
   }
 
   return readString(payload.projectKey) ?? readString(payload.project_key) ?? readString(payload.clientKey);
-}
-
-function extractPayloadPriorityBucket(payload: Record<string, unknown> | undefined): PriorityBucket | undefined {
-  if (payload === undefined) {
-    return undefined;
-  }
-
-  return parsePriorityBucket(payload.priorityBucket ?? payload.priority_bucket);
 }
 
 function extractPayloadApprovalRequired(payload: Record<string, unknown> | undefined): boolean | undefined {
@@ -442,40 +412,10 @@ function resolveTriageRule(
     projectKey?: string | undefined;
     listId?: string | undefined;
     status?: string | undefined;
-    tags: string[];
   },
   triageRules: Record<string, TriageRule>,
 ): { projectKey: string | undefined; rule: TriageRule | undefined } {
   return resolveBestMatchingRule(input, triageRules);
-}
-
-function findTemplateByTagMatch(
-  tags: string[],
-  templates: Record<string, WorkTypeTemplate>,
-): string | undefined {
-  const normalizedTags = tags.map(normalizeKey);
-
-  for (const [workType, template] of Object.entries(templates)) {
-    const candidates = [workType, ...(template.matchTags ?? [])].map(normalizeKey);
-    if (candidates.some((candidate) => normalizedTags.includes(candidate))) {
-      return workType;
-    }
-  }
-
-  return undefined;
-}
-
-function extractPayloadWorkType(payload: Record<string, unknown> | undefined): string | undefined {
-  if (payload === undefined) {
-    return undefined;
-  }
-
-  return (
-    readString(payload.workType) ??
-    readString(payload.template) ??
-    readString(payload.type) ??
-    readString(payload.work_type)
-  );
 }
 
 function parseProjectRoutingRules(input: string | undefined): Record<string, ProjectRoutingRule> {
@@ -493,13 +433,9 @@ function parseProjectRoutingRules(input: string | undefined): Record<string, Pro
 
     const rule = rawRule as Record<string, unknown>;
     const nextRule: ProjectRoutingRule = {
-      matchLabels: readStringArray(rule.matchLabels),
       matchStatuses: readStringArray(rule.matchStatuses),
       matchListIds: readStringArray(rule.matchListIds),
-      autoPickLabels: readStringArray(rule.autoPickLabels),
       autoPickStatuses: readStringArray(rule.autoPickStatuses),
-      approvalLabels: readStringArray(rule.approvalLabels),
-      approvalStatuses: readStringArray(rule.approvalStatuses),
       approvalRequired: typeof rule.approvalRequired === "boolean" ? rule.approvalRequired : undefined,
       workType: readString(rule.workType),
       priorityBucket: parsePriorityBucket(rule.priorityBucket),
@@ -535,11 +471,9 @@ function ruleMatchScore(input: {
   projectKey?: string | undefined;
   listId?: string | undefined;
   status?: string | undefined;
-  tags: string[];
 }, rule: MatchingRule): number {
   const normalizedListId = input.listId === undefined ? undefined : normalizeKey(input.listId);
   const normalizedStatus = normalizeStatus(input.status);
-  const normalizedTags = normalizeTags(input.tags);
   let score = 0;
 
   if (normalizedListId !== undefined && (rule.matchListIds?.map(normalizeKey).includes(normalizedListId) ?? false)) {
@@ -550,9 +484,6 @@ function ruleMatchScore(input: {
     score += 10;
   }
 
-  const tagMatches = normalizedTags.filter((tag) => (rule.matchLabels?.map(normalizeKey).includes(tag) ?? false));
-  score += tagMatches.length;
-
   return score;
 }
 
@@ -561,7 +492,6 @@ function resolveBestMatchingRule<R extends MatchingRule>(
     projectKey?: string | undefined;
     listId?: string | undefined;
     status?: string | undefined;
-    tags: string[];
   },
   rules: Record<string, R>,
 ): { projectKey: string | undefined; rule: R | undefined } {
@@ -603,7 +533,6 @@ function resolveRoutingRule(
     projectKey?: string | undefined;
     listId?: string | undefined;
     status?: string | undefined;
-    tags: string[];
   },
   routingRules: Record<string, ProjectRoutingRule>,
 ): { projectKey: string | undefined; rule: ProjectRoutingRule | undefined } {
@@ -612,7 +541,6 @@ function resolveRoutingRule(
 
 function shouldAutoPickTask(input: {
   status?: string | undefined;
-  tags: string[];
   automationAllowed?: boolean | undefined;
   rule?: ProjectRoutingRule | undefined;
   approvalRequired?: boolean | undefined;
@@ -622,48 +550,30 @@ function shouldAutoPickTask(input: {
   }
 
   const normalizedStatus = normalizeStatus(input.status);
-  const normalizedTags = normalizeTags(input.tags);
   const rule = input.rule;
 
   const statusEligible =
     normalizedStatus === "ready for openclaw" ||
     (rule?.autoPickStatuses?.map(normalizeKey) ?? []).includes(normalizedStatus);
-  const labelEligible =
-    normalizedTags.some((tag) => (rule?.autoPickLabels?.map(normalizeKey) ?? []).includes(tag)) ||
-    normalizedTags.includes("automation");
   const approvalRequired =
     input.approvalRequired === true ||
     rule?.approvalRequired === true ||
-    normalizedTags.includes("needs-human") ||
-    normalizedTags.includes("needs-review") ||
     normalizedStatus === "triage" ||
     normalizedStatus === "needs-human" ||
-    normalizedStatus === "needs-review" ||
-    (rule?.approvalStatuses?.map(normalizeKey) ?? []).includes(normalizedStatus) ||
-    normalizedTags.some((tag) => (rule?.approvalLabels?.map(normalizeKey) ?? []).includes(tag));
+    normalizedStatus === "needs-review";
 
-  return (statusEligible || labelEligible) && !approvalRequired;
+  return statusEligible && !approvalRequired;
 }
 
 function determinePriorityBucket(input: {
   clickupPriority?: string | undefined;
   taskBucket?: PriorityBucket | undefined;
   routingRule?: ProjectRoutingRule | undefined;
-  tags: string[];
 }): PriorityBucket | undefined {
-  const normalizedTags = normalizeTags(input.tags);
-
   return (
     input.taskBucket ??
     input.routingRule?.priorityBucket ??
-    parsePriorityBucket(input.clickupPriority) ??
-    (normalizedTags.includes("urgent")
-      ? "urgent"
-      : normalizedTags.includes("high")
-        ? "high"
-        : normalizedTags.includes("low")
-          ? "low"
-          : undefined)
+    parsePriorityBucket(input.clickupPriority)
   );
 }
 
@@ -707,17 +617,18 @@ function buildArtifactComment(
 function buildTaskWriteBackFields(
   task: Partial<
     Pick<
-    ClickUpTask,
-    | "routingKey"
-    | "priorityBucket"
-    | "automationAllowed"
-    | "approvalRequired"
-    | "autoPicked"
-    | "triageReason"
-    | "branchName"
-    | "commitSha"
-    | "commitUrl"
-    | "prNumber"
+      ClickUpTask,
+      | "routingKey"
+      | "priority"
+      | "priorityBucket"
+      | "automationAllowed"
+      | "approvalRequired"
+      | "autoPicked"
+      | "triageReason"
+      | "branchName"
+      | "commitSha"
+      | "commitUrl"
+      | "prNumber"
     >
   > | undefined,
   now: string,
@@ -728,7 +639,9 @@ function buildTaskWriteBackFields(
     last_sync_at: now,
     ...extraFields,
     ...(task?.routingKey === undefined ? {} : { routing_key: task.routingKey }),
-    ...(task?.priorityBucket === undefined ? {} : { priority_bucket: task.priorityBucket }),
+    ...(task?.priority === undefined && task?.priorityBucket === undefined
+      ? {}
+      : { priority: task.priority ?? task.priorityBucket }),
     ...(task?.automationAllowed === undefined ? {} : { automation_allowed: task.automationAllowed }),
     ...(task?.approvalRequired === undefined ? {} : { approval_required: task.approvalRequired }),
     ...(task?.autoPicked === undefined ? {} : { auto_picked: task.autoPicked }),
@@ -1351,11 +1264,9 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
   function buildWorkboardLabels(task: ClickUpTask): string[] {
     return [
       "clickup",
-      "automation",
       task.projectKey === undefined ? undefined : `project:${normalizeKey(task.projectKey)}`,
       task.workType === undefined ? undefined : `work-type:${normalizeKey(task.workType)}`,
       task.routingKey === undefined ? undefined : `route:${normalizeKey(task.routingKey)}`,
-      ...normalizeTags(task.tags).map((tag) => `tag:${tag}`),
     ].filter((label): label is string => label !== undefined);
   }
 
@@ -1397,7 +1308,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         projectKey: job.task.projectKey ?? job.task.routingKey ?? defaultProjectKey,
         listId: job.task.listId,
         status: job.task.status,
-        tags: job.task.tags ?? [],
       },
       projectRoutingRules,
     );
@@ -1421,13 +1331,13 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
               clickupStatus: clickupAutomationStatusSchema.parse(normalizeStatus(job.task.status)),
             }
           : {}),
+        cardType: "automation",
         projectKey: job.task.projectKey,
         workType: job.task.workType,
         routingKey: job.task.routingKey,
         automationAllowed: job.task.automationAllowed,
         approvalRequired: job.task.approvalRequired,
         priorityBucket: job.task.priorityBucket,
-        tags: job.task.tags,
         repoUrl: links.repoUrl,
         prUrl: links.prUrl,
         artifactUrl: links.artifactUrl,
@@ -2271,21 +2181,15 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     });
 
     const payloadRecord = input.payload;
-    const payloadWorkType = extractPayloadWorkType(payloadRecord);
-    const payloadTags = extractPayloadTags(payloadRecord);
     const payloadProjectKey = extractPayloadProjectKey(payloadRecord);
-    const payloadPriorityBucket = extractPayloadPriorityBucket(payloadRecord);
     const payloadAutomationAllowed = extractPayloadAutomationAllowed(payloadRecord);
     const payloadApprovalRequired = extractPayloadApprovalRequired(payloadRecord);
-    const mergedTags = [...new Set([...(input.task.tags ?? []), ...payloadTags])];
-    const taggedWorkType = mergedTags.length > 0 ? findTemplateByTagMatch(mergedTags, workTypeTemplates) : undefined;
     const currentStatus = input.task.status ?? input.status ?? "unknown";
     const routing = resolveRoutingRule(
       {
         projectKey: input.task.projectKey ?? payloadProjectKey ?? defaultProjectKey,
         listId: input.task.listId ?? input.listId,
         status: currentStatus,
-        tags: mergedTags,
       },
       projectRoutingRules,
     );
@@ -2294,7 +2198,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         projectKey: input.task.projectKey ?? payloadProjectKey ?? defaultProjectKey,
         listId: input.task.listId ?? input.listId,
         status: currentStatus,
-        tags: mergedTags,
       },
       triageRules,
     );
@@ -2305,31 +2208,16 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       input.task.approvalRequired ??
       payloadApprovalRequired ??
       (triage.rule?.holdForHuman === true ? true : undefined) ??
-      (normalizeStatus(currentStatus) === "triage" ||
-      normalizeTags(mergedTags).includes("needs-human") ||
-      normalizeTags(mergedTags).includes("needs-review")
-        ? true
-        : undefined);
-    const workTypeSource =
-      payloadWorkType ??
-      input.task.workType ??
-      routing.rule?.workType ??
-      taggedWorkType ??
-      defaultWorkType ??
-      "";
-    const normalizedWorkType = normalizeKey(workTypeSource);
-    const workType = normalizedWorkType.length > 0 ? normalizedWorkType : undefined;
+      (normalizeStatus(currentStatus) === "triage" ? true : undefined);
+    const workType = input.task.workType ?? routing.rule?.workType ?? defaultWorkType ?? undefined;
     const template = workType === undefined ? undefined : workTypeTemplates[workType];
     const templateText =
       workType !== undefined && template !== undefined ? renderTaskTemplate(workType, template) : undefined;
     const workflowTemplateKey = projectKey === undefined ? undefined : normalizeKey(projectKey);
-    const workflowTemplateMatch =
-      mergedTags.length > 0 ? findTemplateByTagMatch(mergedTags, workflowTemplates) : undefined;
-    const workflowTemplateLabel = workflowTemplateKey ?? workType ?? workflowTemplateMatch;
+    const workflowTemplateLabel = workflowTemplateKey ?? workType;
     const workflowTemplate =
       (workflowTemplateKey === undefined ? undefined : workflowTemplates[workflowTemplateKey]) ??
-      (workType === undefined ? undefined : workflowTemplates[workType]) ??
-      (workflowTemplateMatch === undefined ? undefined : workflowTemplates[workflowTemplateMatch]);
+      (workType === undefined ? undefined : workflowTemplates[workType]);
     const workflowTemplateText =
       workflowTemplateLabel !== undefined && workflowTemplate !== undefined
         ? renderWorkflowTemplate(workflowTemplateLabel, workflowTemplate)
@@ -2350,13 +2238,10 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         : undefined);
     const priorityBucket = determinePriorityBucket({
       clickupPriority: input.task.priority,
-      taskBucket: payloadPriorityBucket ?? input.task.priorityBucket,
       routingRule: routing.rule,
-      tags: mergedTags,
     });
     const autoPicked = shouldAutoPickTask({
       status: currentStatus,
-      tags: mergedTags,
       automationAllowed: automationAllowed ?? undefined,
       rule: routing.rule,
       approvalRequired,
@@ -2390,7 +2275,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         docsUrl: links.docsUrl,
         designUrl: links.designUrl,
         triageReason,
-        tags: mergedTags,
       },
       state:
         autoPicked && effectiveApprovalRequired !== true
@@ -2453,7 +2337,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         status: event.status ?? "unknown",
         listId: event.listId,
         updatedAt: event.updatedAt,
-        tags: [],
       };
 
     return ingestTaskSnapshot({

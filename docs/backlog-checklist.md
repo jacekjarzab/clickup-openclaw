@@ -83,7 +83,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Finalize the Bridge to Workboard card payload contract
 - [x] Freeze the required and optional fields in the payload schema
   - Required: `title`, `notes`, `status`, `priority`, `labels`, `idempotencyKey`
-  - Metadata: `sourceSystem`, `clickupTaskId`, `clickupStatus`, `projectKey`, `workType`, `routingKey`, `automationAllowed`, `approvalRequired`, `priorityBucket`, `tags`, `repoUrl`, `prUrl`, `artifactUrl`, `docsUrl`, `designUrl`
+  - Metadata: `sourceSystem`, `clickupTaskId`, `clickupStatus`, `projectKey`, `workType`, `routingKey`, `automationAllowed`, `approvalRequired`, `priorityBucket`, `repoUrl`, `prUrl`, `artifactUrl`, `docsUrl`, `designUrl`
   - Add schema tests for missing, empty, and extra fields
 - [x] Finalize the Workboard to ClickUp status mapping table
 - [x] Lock the status-to-status and status-to-automation-state mapping
@@ -168,7 +168,7 @@ This is the living build checklist. Update it as we complete items and discover 
   - Prove the same Bridge config can handle more than one project tree
   - Add regression tests for cross-project isolation
 - [x] Support per-project routing labels and metadata on Workboard cards
-  - Write project-specific labels, tags, or routing metadata during handoff
+  - Write project-specific labels or routing metadata during handoff
   - Confirm the metadata survives rereads and sync loops
 - [x] Add dashboards for queue health, sync lag, and completion rates
 - [x] Add reporting for card lifecycle throughput and blocked-task categories

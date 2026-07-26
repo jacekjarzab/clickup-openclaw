@@ -19,7 +19,6 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
         list: { id: "list-1" },
         priority: "high",
         description: "desc",
-        tags: [{ name: "ops" }],
         custom_fields: [
           { id: "repo_url", value: "https://github.com/acme/widgets" },
           { id: "pr_url", value: "https://github.com/acme/widgets/pull/42" },
@@ -29,7 +28,6 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
           { id: "work_type", value: "feature" },
           { id: "project_key", value: "acme-web" },
           { id: "automation_allowed", value: true },
-          { id: "priority_bucket", value: "urgent" },
           { id: "branch_name", value: "feature/widgets" },
           { id: "commit_sha", value: "abc123" },
           { id: "commit_url", value: "https://github.com/acme/widgets/commit/abc123" },
@@ -53,12 +51,11 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
     assert.equal(task.workType, "feature");
     assert.equal(task.projectKey, "acme-web");
     assert.equal(task.automationAllowed, true);
-    assert.equal(task.priorityBucket, "urgent");
+    assert.equal(task.priorityBucket, "high");
     assert.equal(task.branchName, "feature/widgets");
     assert.equal(task.commitSha, "abc123");
     assert.equal(task.commitUrl, "https://github.com/acme/widgets/commit/abc123");
     assert.equal(task.prNumber, 42);
-    assert.deepEqual(task.tags, ["ops"]);
 
     globalThis.fetch = (async () => {
       return {
@@ -67,7 +64,7 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
           id: "task-2",
           name: "Build thing",
           status: { status: "ready for openclaw" },
-          tags: [],
+          priority: "urgent",
         }),
       } as Response;
     }) as typeof fetch;
@@ -81,7 +78,7 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
     assert.equal(withoutRepo.workType, undefined);
     assert.equal(withoutRepo.projectKey, undefined);
     assert.equal(withoutRepo.automationAllowed, undefined);
-    assert.equal(withoutRepo.priorityBucket, undefined);
+    assert.equal(withoutRepo.priorityBucket, "urgent");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -110,7 +107,6 @@ test("retry policy retries transient ClickUp failures", async () => {
         id: "task-3",
         name: "Build thing",
         status: { status: "ready for openclaw" },
-        tags: [],
       }),
     } as Response;
   }) as typeof fetch;
