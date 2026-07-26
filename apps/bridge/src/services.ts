@@ -1943,7 +1943,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
   async function writeOperatorClickUpState(
     taskId: string,
     input: {
-      status: "blocked" | "human-review";
+      status: "blocked" | "synced_back";
       reason?: string | undefined;
       updatedAt: string;
     },
@@ -2106,7 +2106,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       updatedAt,
     });
 
-    await writeOperatorClickUpState(taskId, { status: "human-review", reason, updatedAt });
+    await writeOperatorClickUpState(taskId, { status: "synced_back", reason, updatedAt });
 
     logger.info("task forced into human review", { taskId, reason: reason ?? null });
 

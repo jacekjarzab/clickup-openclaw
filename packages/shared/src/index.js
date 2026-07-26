@@ -16,7 +16,6 @@ export const clickupAutomationStatuses = [
     "ready for openclaw",
     "in progress",
     "blocked",
-    "human-review",
     "approval",
     "done",
     "closed",
