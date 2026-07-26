@@ -64,7 +64,7 @@ That gives Bridge a stable place to sync from without inventing extra structure.
 Bridge should write:
 - stable card title
 - normalized task snapshot in notes
-- labels for project, automation type, and source
+- labels for project and source metadata only
 - priority mapped from ClickUp
 - idempotency key derived from ClickUp task id
 

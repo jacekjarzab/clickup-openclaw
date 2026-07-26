@@ -156,7 +156,7 @@
   - Verify routing isolation between projects
 - Implemented: project-specific routing links now flow into Workboard card metadata and task labels
 - Support per-project routing labels and metadata on Workboard cards
-  - Write project-specific labels, tags, or routing metadata during handoff
+  - Write project-specific labels or routing metadata during handoff
   - Confirm the metadata persists through rereads and sync loops
 - Implemented: dashboards exist for queue health and completion rates, including sync lag metrics
 - Implemented: reporting now includes routing throughput, queue wait, running duration, and blocked categories

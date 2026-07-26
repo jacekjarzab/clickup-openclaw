@@ -12,20 +12,20 @@ const payload: BridgeToWorkboardCard = {
     notes: "Create the workboard card over websocket",
     status: "ready",
     priority: "high",
-    labels: ["automation"],
+    labels: [],
     idempotencyKey: "task-1",
   },
   metadata: {
     sourceSystem: "clickup",
     clickupTaskId: "task-1",
     clickupStatus: "ready for openclaw",
+    cardType: "automation",
     projectKey: "saint",
     workType: "backend",
     routingKey: "saint",
     automationAllowed: true,
     approvalRequired: false,
     priorityBucket: "high",
-    tags: ["automation"],
   },
 };
 

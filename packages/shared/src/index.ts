@@ -147,7 +147,6 @@ export const clickupTaskSchema = z.object({
   artifactUrl: z.string().min(1).optional(),
   docsUrl: z.string().min(1).optional(),
   designUrl: z.string().min(1).optional(),
-  tags: z.array(z.string()).default([]),
 });
 
 export type ClickUpTask = z.infer<typeof clickupTaskSchema>;
@@ -173,13 +172,13 @@ export const workboardCardMetadataSchema = z.object({
   sourceSystem: z.literal("clickup"),
   clickupTaskId: z.string().min(1),
   clickupStatus: clickupAutomationStatusSchema.optional(),
+  cardType: z.literal("automation").optional(),
   projectKey: z.string().min(1).optional(),
   workType: z.string().min(1).optional(),
   routingKey: z.string().min(1).optional(),
   automationAllowed: z.boolean().optional(),
   approvalRequired: z.boolean().optional(),
   priorityBucket: priorityBucketSchema.optional(),
-  tags: z.array(z.string()).default([]),
   repoUrl: z.string().min(1).optional(),
   prUrl: z.string().min(1).optional(),
   artifactUrl: z.string().min(1).optional(),

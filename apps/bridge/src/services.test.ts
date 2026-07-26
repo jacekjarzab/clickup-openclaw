@@ -160,7 +160,6 @@ function buildPhase8Config() {
     PROJECT_ROUTING_JSON: JSON.stringify({
       acme: {
         matchListIds: ["list-acme"],
-        matchLabels: ["vip"],
         repoUrl: "https://example.com/acme",
         docsUrl: "https://example.com/acme/docs",
       },
@@ -177,7 +176,6 @@ function buildSeedTask(id: string): ClickUpTask {
     id,
     name: `Task ${id}`,
     status: "ready for openclaw",
-    tags: [],
   };
 }
 
@@ -303,22 +301,13 @@ test("ingestWebhook prefers the most specific project routing rule", async () =>
     listId: "list-acme",
     status: "ready for openclaw",
     updatedAt: "2026-07-23T10:00:00.000Z",
-    payload: {
-      labels: ["vip"],
-    },
   });
 
   assert.deepEqual(result, { accepted: true, duplicate: false });
   assert.equal(adapter.created.length, 1);
   assert.equal(adapter.created[0]?.metadata.projectKey, "acme");
   assert.equal(adapter.created[0]?.metadata.routingKey, "acme");
-  assert.deepEqual(adapter.created[0]?.card.labels.slice(0, 4), [
-    "clickup",
-    "automation",
-    "project:acme",
-    "route:acme",
-  ]);
-  assert.ok(adapter.created[0]?.card.labels.includes("tag:vip"));
+  assert.deepEqual(adapter.created[0]?.card.labels.slice(0, 3), ["clickup", "project:acme", "route:acme"]);
   assert.equal(adapter.created[0]?.metadata.repoUrl, "https://example.com/acme");
   assert.equal(adapter.created[0]?.metadata.docsUrl, "https://example.com/acme/docs");
 });
@@ -1190,7 +1179,6 @@ test("watchOpenClawCards posts the running start comment once", async () => {
         id: "task-running",
         name: "Running task",
         status: "ready for openclaw",
-        tags: [],
       },
       state: "succeeded",
       bridgeState: "dispatched",
@@ -1284,7 +1272,6 @@ test("watchOpenClawCards rereads stale terminal cards before syncing them back",
         id: "task-terminal",
         name: "Terminal task",
         status: "ready for openclaw",
-        tags: [],
       },
       state: "succeeded",
       bridgeState: "dispatched",
@@ -1380,7 +1367,6 @@ test("watchOpenClawCards suppresses duplicate terminal write-backs after a parti
         id: "task-terminal",
         name: "Terminal task",
         status: "ready for openclaw",
-        tags: [],
       },
       state: "succeeded",
       bridgeState: "dispatched",
@@ -1474,7 +1460,6 @@ test("watchOpenClawCards keeps the last synced terminal status from reposting th
         id: "task-terminal",
         name: "Terminal task",
         status: "ready for openclaw",
-        tags: [],
       },
       state: "succeeded",
       bridgeState: "dispatched",

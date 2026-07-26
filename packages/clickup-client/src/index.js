@@ -28,7 +28,6 @@ export function createClickUpClient(options) {
                 listId: body.list?.id,
                 priority: body.priority,
                 description: body.description,
-                tags: body.tags?.map((tag) => tag.name) ?? [],
             };
         },
         async postTaskComment(taskId, comment) {

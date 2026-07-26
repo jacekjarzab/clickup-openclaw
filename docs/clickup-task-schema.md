@@ -63,16 +63,17 @@ Recommended task fields:
   - Timestamp of the latest successful sync.
 - `last_error`
   - Short text summary of the latest failure.
-- `priority_bucket`
-  - Enum such as `low`, `normal`, `high`, `urgent`.
+- `priority`
+  - ClickUp built-in priority field; Bridge maps it to its internal bucket.
 - `automation_allowed`
   - Checkbox or enum to explicitly permit OpenClaw execution.
 
 ## Labels
 
+ClickUp labels are optional and do not drive Bridge pickup.
+
 Recommended labels:
 
-- `automation`
 - `needs-human`
 - `needs-review`
 - `backend`
@@ -147,9 +148,9 @@ Bridge should create Workboard cards with this minimum contract:
 - `status`
   - `ready` by default, `todo` only when the task should be queued but not dispatched yet
 - `priority`
-  - mapped from `priority_bucket`
+  - normalized from ClickUp built-in `priority`
 - `labels`
-  - source, project, work type, routing, and notable tags
+  - source and routing metadata only
 - `idempotencyKey`
   - stable key derived from ClickUp task id and Bridge handoff rules
 - optional `agentId`
