@@ -188,8 +188,9 @@ function buildRunnerOptions(cwd: string | undefined, timeoutMs: number): { cwd?:
 }
 
 function toCardSummary(id: string, raw: Record<string, unknown>): OpenClawWorkboardCardSummary {
-  const status = normalizeCardStatus(raw.status);
-  const terminalContext = status === undefined ? undefined : extractTerminalContext(raw, status);
+  const card = readCardRecord(raw) ?? raw;
+  const status = normalizeCardStatus(card.status ?? raw.status);
+  const terminalContext = status === undefined ? undefined : extractTerminalContext(card, status);
   return {
     id,
     raw,

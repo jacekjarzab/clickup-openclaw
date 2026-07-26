@@ -8,7 +8,7 @@ Current execution path:
 - Bridge normalizes and persists the job
 - Bridge creates and dispatches an OpenClaw Workboard card
 - OpenClaw processes it with the default agent
-- Bridge syncs status back to ClickUp and returns successful work to `human-review`
+- Bridge syncs status back to ClickUp and returns successful work to `approval`
 
 ## Layout
 

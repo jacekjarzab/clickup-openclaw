@@ -18,7 +18,7 @@ Make ClickUp the source of truth for all client work while giving OpenClaw a cle
 - `ready for openclaw`
 - `in progress`
 - `blocked`
-- `human-review`
+- `approval`
 - `done`
 - `closed`
 
@@ -34,7 +34,7 @@ Make ClickUp the source of truth for all client work while giving OpenClaw a cle
   - OpenClaw has claimed the task and is actively working it.
 - `blocked`
   - Work cannot continue without external input or dependency resolution.
-- `human-review`
+- `approval`
   - Work is complete, but a human should validate it first.
 - `done`
   - Work is finished and accepted.
@@ -112,7 +112,7 @@ For each OpenClaw-ready task, encourage the following structure:
 - On finish:
   - terminal status comment
   - links to PRs, commits, docs, or deployments once artifact enrichment is implemented
-  - successful automation returns the task to `human-review`
+  - successful automation returns the task to `approval`
 - On failure:
   - blocker or status summary
   - next step when enrichment is implemented

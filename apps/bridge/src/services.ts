@@ -1973,7 +1973,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
           : `OpenClaw returned this task for human review.\nNote: ${input.reason}`;
 
     await clickup.updateTaskMetadata(taskId, {
-      status: input.status === "blocked" ? "blocked" : "human-review",
+      status: input.status === "blocked" ? "blocked" : "approval",
       customFields: buildTaskWriteBackFields(current.task, input.updatedAt, links, {
         automation_state: automationState,
         last_error: input.reason ?? "",

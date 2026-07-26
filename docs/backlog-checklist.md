@@ -13,7 +13,7 @@ This is the living build checklist. Update it as we complete items and discover 
   - Confirm the status + field mapping before broad sync
 - [x] Lock the automation-eligible task filter already agreed for Bridge
 - [x] Define the ClickUp statuses Bridge may consume and write back
-- [x] Confirm the target human-review status in ClickUp
+- [x] Confirm the target approval status in ClickUp
 - [x] Verify the local OpenClaw Gateway and Workboard plugin runtime on the Bridge host
 - [x] Keep the private bridge path behind Tailscale or loopback-only access
 
@@ -62,7 +62,7 @@ This is the living build checklist. Update it as we complete items and discover 
 
 - [x] Post a start comment to the ClickUp task when Bridge observes Workboard execution start
 - [x] Move the task to ClickUp `in progress` when Workboard enters `running`
-- [x] Move the task to ClickUp `human-review` when OpenClaw finishes successfully
+- [x] Move the task to ClickUp `approval` when OpenClaw finishes successfully
 - [x] Post completion summaries with proof and useful artifact links
   - Include the terminal summary from OpenClaw
   - Include proof text when available
@@ -89,7 +89,7 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Lock the status-to-status and status-to-automation-state mapping
   - `triage`, `backlog`, `todo`, `scheduled`, `ready` -> `ready for openclaw` + `candidate`
   - `running` -> `in progress` + `running`
-  - `review` and `done` -> `human-review` + `done`
+  - `review` and `done` -> `approval` + `done`
   - `blocked` -> `blocked` + `blocked`
   - Treat unsupported statuses as contract errors
 - [x] Define what Bridge writes into ClickUp custom fields such as `run_id`, `workboard_id`, and sync metadata
@@ -103,9 +103,9 @@ This is the living build checklist. Update it as we complete items and discover 
   - Temporary Gateway unavailability should reread existing card state and never create a second card
   - Add tests for duplicate event, transient CLI failure, and gateway-recovery behavior
 - [x] Define which terminal outcomes require human review versus blocked status
-  - `review` and `done` stay on `human-review`
+  - `review` and `done` stay on `approval`
   - Explicit dependency, access, or environment blockers map to `blocked`
-  - Ambiguous terminal payloads default to `human-review`, not `blocked`
+  - Ambiguous terminal payloads default to `approval`, not `blocked`
   - Add a decision matrix for `force-human-review` and `mark-blocked`
 
 ## Phase 6: Reliability
@@ -154,7 +154,7 @@ This is the living build checklist. Update it as we complete items and discover 
   - Stop automatic dispatch for the job until an operator explicitly requeues it
   - Add tests for blocked write-back, blocked comment content, and requeue-after-block behavior
 - [x] Add a force-human-review path when OpenClaw output should be inspected without further automation
-  - Move a job into `synced_back` / human-review flow without marking it as blocked
+  - Move a job into `synced_back` / approval flow without marking it as blocked
   - Preserve the latest OpenClaw summary, proof, and artifact links in ClickUp
   - Ensure the job stays out of the automatic dispatch queue after the forced review handoff
   - Add tests for forced review write-back and queue exclusion

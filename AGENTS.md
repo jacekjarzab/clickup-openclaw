@@ -16,7 +16,7 @@
 
 ## Runtime / Contract Rules
 - The bridge is designed to run locally beside OpenClaw and shells out to `openclaw workboard ...`.
-- Do not change the ClickUp status contract casually: `review` and `done` map back to ClickUp `human-review`, and successful OpenClaw completion should not move tasks straight to `done` in v1.
+- Do not change the ClickUp status contract casually: `review` and `done` map back to ClickUp `approval`, and successful OpenClaw completion should not move tasks straight to `done` in v1.
 - Keep `ready for openclaw` as the automation gate in bridge logic.
 - Preserve the local-only/private assumptions in `docs/architecture.md` and `docs/openclaw-bridge-spec.md` unless the repo is explicitly being re-architected.
 

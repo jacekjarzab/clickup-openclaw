@@ -142,6 +142,29 @@ test("OpenClawWorkboardAdapter retries transient showCard failures", async () =>
   assert.equal(card.status, "blocked");
 });
 
+test("OpenClawWorkboardAdapter showCard accepts nested card responses", async () => {
+  const adapter = new OpenClawWorkboardAdapter({
+    runner: async () => {
+      return {
+        stdout: JSON.stringify({
+          card: {
+            id: "card-terminal",
+            status: "done",
+            summary: "Nested card payload",
+          },
+        }),
+        stderr: "",
+      };
+    },
+  });
+
+  const card = await adapter.showCard("card-terminal");
+
+  assert.equal(card.id, "card-terminal");
+  assert.equal(card.status, "done");
+  assert.equal(card.raw.card?.summary, "Nested card payload");
+});
+
 test("OpenClawWorkboardAdapter retries transient createCard failures", async () => {
   let attempts = 0;
   const adapter = new OpenClawWorkboardAdapter({

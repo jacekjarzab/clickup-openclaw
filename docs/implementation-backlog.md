@@ -5,7 +5,7 @@
 - Confirm ClickUp workspace structure
 - Lock the automation-eligible task filter already agreed for Bridge
 - Define the ClickUp statuses Bridge may consume and write back
-- Confirm the target human-review status in ClickUp
+- Confirm the target approval status in ClickUp
 - Verify the local OpenClaw Gateway and Workboard plugin runtime on the Bridge host
 - Keep the private bridge path behind Tailscale or loopback-only access
 
@@ -54,7 +54,7 @@
 
 - Post a start comment to the ClickUp task when Bridge observes Workboard execution start
 - Move the task to ClickUp `in progress` when Workboard enters `running`
-- Move the task to ClickUp `human-review` when OpenClaw finishes successfully
+- Move the task to ClickUp `approval` when OpenClaw finishes successfully
 - Post completion summaries with proof and useful artifact links
 - Include the terminal summary from OpenClaw
 - Include proof text when available
@@ -91,9 +91,9 @@
   - Temporary Gateway unavailability should reread existing card state and never create a second card
   - Add tests for duplicate event, transient CLI failure, and gateway-recovery behavior
 - Define which terminal outcomes require human review versus blocked status
-  - `review` and `done` stay on `human-review`
+  - `review` and `done` stay on `approval`
   - Explicit dependency, access, or environment blockers map to `blocked`
-  - Ambiguous terminal payloads default to `human-review`, not `blocked`
+  - Ambiguous terminal payloads default to `approval`, not `blocked`
   - Add a decision matrix for `force-human-review` and `mark-blocked`
 
 ## Phase 6: Reliability
@@ -139,7 +139,7 @@
   - Stop automatic dispatch for the job until an operator explicitly requeues it
   - Add tests for blocked write-back, blocked comment content, and requeue-after-block behavior
 - Implemented: force-human-review path exists via `POST /openclaw/:taskId/review`
-  - Move a job into `synced_back` / human-review flow without marking it as blocked
+  - Move a job into `synced_back` / approval flow without marking it as blocked
   - Preserve the latest OpenClaw summary, proof, and artifact links in ClickUp
   - Ensure the job stays out of the automatic dispatch queue after the forced review handoff
   - Add tests for forced review write-back and queue exclusion
@@ -177,7 +177,7 @@
 2. Bridge job normalization and idempotency store
 3. OpenClaw CLI adapter and Workboard card creation
 4. Dispatch and watcher loop
-5. ClickUp write-back to `in progress` and `human-review`
+5. ClickUp write-back to `in progress` and `approval`
 6. Failure handling and restart-safe reconciliation
 7. Artifact, proof, and summary enrichment
 8. Operator controls and dashboards
@@ -187,6 +187,6 @@
 - Only automation-eligible ClickUp tasks are handed to OpenClaw.
 - One eligible ClickUp task maps to one active Workboard card.
 - Bridge can dispatch work into the existing local OpenClaw Gateway.
-- OpenClaw can finish a task and Bridge moves it to `human-review`.
+- OpenClaw can finish a task and Bridge moves it to `approval`.
 - Blocked, failed, and interrupted runs are visible in ClickUp.
 - The system can recover after Bridge or Gateway restarts without duplicate task execution.
