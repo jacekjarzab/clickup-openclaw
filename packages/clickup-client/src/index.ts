@@ -160,10 +160,10 @@ function parseNumberField(value: unknown): number | undefined {
     return value;
   }
 
-    if (typeof value === "string") {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
 
   return undefined;
 }

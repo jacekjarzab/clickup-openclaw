@@ -541,7 +541,6 @@ function resolveRoutingRule(
 
 function shouldAutoPickTask(input: {
   status?: string | undefined;
-  workType?: string | undefined;
   automationAllowed?: boolean | undefined;
   rule?: ProjectRoutingRule | undefined;
   approvalRequired?: boolean | undefined;
@@ -617,19 +616,19 @@ function buildArtifactComment(
 
 function buildTaskWriteBackFields(
   task: Partial<
-  Pick<
-    ClickUpTask,
-    | "routingKey"
-    | "priority"
-    | "priorityBucket"
-    | "automationAllowed"
-    | "approvalRequired"
-    | "autoPicked"
-    | "triageReason"
-    | "branchName"
-    | "commitSha"
-    | "commitUrl"
-    | "prNumber"
+    Pick<
+      ClickUpTask,
+      | "routingKey"
+      | "priority"
+      | "priorityBucket"
+      | "automationAllowed"
+      | "approvalRequired"
+      | "autoPicked"
+      | "triageReason"
+      | "branchName"
+      | "commitSha"
+      | "commitUrl"
+      | "prNumber"
     >
   > | undefined,
   now: string,
@@ -2243,7 +2242,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     });
     const autoPicked = shouldAutoPickTask({
       status: currentStatus,
-      workType,
       automationAllowed: automationAllowed ?? undefined,
       rule: routing.rule,
       approvalRequired,
