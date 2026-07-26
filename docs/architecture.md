@@ -79,7 +79,7 @@ flowchart LR
 7. The default OpenClaw agent picks up the card and starts execution.
 8. OpenClaw Workboard tracks running, review, done, blocked, and synced-back states plus proof and completion metadata.
 9. Bridge reads the terminal Workboard result and writes the summary back to ClickUp.
-10. The ClickUp task is moved to `human-review` on successful completion, or to the agreed blocked path on failure.
+10. The ClickUp task is moved to `approval` on successful completion, or to the agreed blocked path on failure.
 
 ## Failure Handling
 

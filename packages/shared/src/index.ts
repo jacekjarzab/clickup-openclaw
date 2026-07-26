@@ -25,7 +25,7 @@ export const clickupAutomationStatuses = [
   "ready for openclaw",
   "in progress",
   "blocked",
-  "human-review",
+  "approval",
   "done",
   "closed",
 ] as const;
@@ -250,7 +250,7 @@ export const workboardToClickUpStatusMappings = [
   },
   {
     workboardStatus: "review",
-    clickupStatus: "human-review",
+    clickupStatus: "approval",
     automationState: "done",
     isTerminal: true,
     syncComment: true,
@@ -264,7 +264,7 @@ export const workboardToClickUpStatusMappings = [
   },
   {
     workboardStatus: "done",
-    clickupStatus: "human-review",
+    clickupStatus: "approval",
     automationState: "done",
     isTerminal: true,
     syncComment: true,

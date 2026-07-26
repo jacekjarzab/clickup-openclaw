@@ -1,7 +1,7 @@
 # ClickUp + OpenClaw Integration Plan
 
 ## Goal
-Use ClickUp as the single source of truth while Bridge routes only automation-eligible tasks into the existing local OpenClaw Gateway. OpenClaw Workboard owns execution and runtime visibility, and Bridge writes terminal outcomes back to ClickUp for human review.
+Use ClickUp as the single source of truth while Bridge routes only automation-eligible tasks into the existing local OpenClaw Gateway. OpenClaw Workboard owns execution and runtime visibility, and Bridge writes terminal outcomes back to ClickUp for human approval.
 
 ## Target Workflow
 - ClickUp manages tasks, statuses, and human-visible history.
@@ -38,7 +38,7 @@ Use ClickUp as the single source of truth while Bridge routes only automation-el
 - Workboard `running`
 - Workboard `blocked`
 - Workboard `review` or `done`
-- ClickUp `human-review`
+- ClickUp `approval`
 
 ## ClickUp Data Model
 Recommended custom fields and metadata:
@@ -88,7 +88,7 @@ During work:
 On finish:
 - terminal comment based on observed Workboard status
 - proof and link enrichment remains planned
-- status: `human-review`
+- status: `approval`
 
 On failure or blocked work:
 - concise blocker/status summary
@@ -126,7 +126,7 @@ On failure or blocked work:
 ## Early Decisions
 - The default OpenClaw agent handles Bridge work for now.
 - Only the existing automation-eligible ClickUp tasks are handed off.
-- Completed OpenClaw work returns to ClickUp as `human-review`.
+- Completed OpenClaw work returns to ClickUp as `approval`.
 - Progress comments should stay lightweight unless there is a blocker.
 
 ## Recommendation
@@ -135,4 +135,4 @@ Start with a boring, reliable v1:
 - Keep Bridge as the orchestrator and mapping layer.
 - Reuse the existing local OpenClaw Gateway and Workboard plugin.
 - Use the local `openclaw workboard` CLI as the first transport.
-- Move successful runs to `human-review`, not straight to done.
+- Move successful runs to `approval`, not straight to done.

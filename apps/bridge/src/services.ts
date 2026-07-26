@@ -1943,7 +1943,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
   async function writeOperatorClickUpState(
     taskId: string,
     input: {
-      status: "blocked" | "human-review";
+      status: "blocked" | "synced_back";
       reason?: string | undefined;
       updatedAt: string;
     },
@@ -1973,7 +1973,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
           : `OpenClaw returned this task for human review.\nNote: ${input.reason}`;
 
     await clickup.updateTaskMetadata(taskId, {
-      status: input.status === "blocked" ? "blocked" : "human-review",
+      status: input.status === "blocked" ? "blocked" : "approval",
       customFields: buildTaskWriteBackFields(current.task, input.updatedAt, links, {
         automation_state: automationState,
         last_error: input.reason ?? "",
@@ -2106,7 +2106,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       updatedAt,
     });
 
-    await writeOperatorClickUpState(taskId, { status: "human-review", reason, updatedAt });
+    await writeOperatorClickUpState(taskId, { status: "synced_back", reason, updatedAt });
 
     logger.info("task forced into human review", { taskId, reason: reason ?? null });
 

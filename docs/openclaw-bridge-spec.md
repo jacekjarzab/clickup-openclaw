@@ -100,9 +100,9 @@ Workboard card statuses are tracked separately as `triage`, `backlog`, `todo`, `
 - `triage` in Workboard maps to ClickUp `triage` with `automation_state=candidate`
 - `backlog`, `todo`, `scheduled`, and `ready` map to ClickUp `ready for openclaw` with `automation_state=candidate`
 - `running` maps to ClickUp `in progress` with `automation_state=running`
-- `review` maps to ClickUp `human-review` with `automation_state=done`
+- `review` maps to ClickUp `approval` with `automation_state=done`
 - `blocked` maps to ClickUp `blocked` with `automation_state=blocked`
-- `done` maps to ClickUp `human-review` with `automation_state=done`
+- `done` maps to ClickUp `approval` with `automation_state=done`
 
 Successful OpenClaw completion does not move ClickUp directly to `done` in v1.
 
@@ -131,7 +131,7 @@ Successful OpenClaw completion does not move ClickUp directly to `done` in v1.
 - OpenClaw crash or blocked run
   - read Workboard terminal state and write the reason back to ClickUp.
 - Permanent failure
-  - mark the task blocked or human-review with the reason attached.
+  - mark the task blocked or approval with the reason attached.
 
 ## Reporting Contract
 
@@ -146,7 +146,7 @@ On running:
 
 On success:
 
-- status to `human-review`
+- status to `approval`
 - terminal comment based on observed Workboard status
 - proof and artifact link enrichment is still planned
 
