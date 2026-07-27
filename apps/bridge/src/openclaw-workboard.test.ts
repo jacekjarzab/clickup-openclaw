@@ -159,10 +159,11 @@ test("OpenClawWorkboardAdapter showCard accepts nested card responses", async ()
   });
 
   const card = await adapter.showCard("card-terminal");
+  const raw = card.raw as { card?: { summary?: string } };
 
   assert.equal(card.id, "card-terminal");
   assert.equal(card.status, "done");
-  assert.equal(card.raw.card?.summary, "Nested card payload");
+  assert.equal(raw.card?.summary, "Nested card payload");
 });
 
 test("OpenClawWorkboardAdapter retries transient createCard failures", async () => {
