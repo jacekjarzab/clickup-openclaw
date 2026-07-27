@@ -51,14 +51,20 @@ Recommended task fields:
   - Text value for the current OpenClaw execution run.
 - `workboard_id`
   - Identifier for the active workboard queue item.
-- `source_system`
-  - Enum for origin, such as `manual`, `clickup`, `openclaw`, `imported`.
+- `routing_key`
+  - Optional routing hint used by Bridge when resolving project rules.
+- `auto_picked`
+  - Boolean set by Bridge when a task is picked up automatically.
 - `repo_url`
   - Link to the primary repository.
 - `pr_url`
   - Link to the pull request, if one exists.
 - `artifact_url`
   - Link to the main artifact, preview, or deployment.
+- `docs_url`
+  - Link to supporting docs, if any.
+- `design_url`
+  - Link to design assets, if any.
 - `last_sync_at`
   - Timestamp of the latest successful sync.
 - `last_error`
@@ -67,6 +73,20 @@ Recommended task fields:
   - ClickUp built-in priority field; Bridge maps it to its internal bucket.
 - `automation_allowed`
   - Checkbox or enum to explicitly permit OpenClaw execution.
+- `approval_required`
+  - Boolean override that keeps a task out of auto-pick until human approval.
+- `triage_reason`
+  - Short text explaining why a task was held or routed a certain way.
+- `branch_name`
+  - Optional branch reference for code-related tasks.
+- `commit_sha`
+  - Optional commit SHA for code-related tasks.
+- `commit_url`
+  - Optional commit URL for code-related tasks.
+- `pr_number`
+  - Optional PR number for code-related tasks.
+
+Bridge also carries a `source_system` metadata field in the Workboard payload, but that is not a ClickUp custom field.
 
 ## Labels
 
@@ -97,10 +117,12 @@ For each OpenClaw-ready task, encourage the following structure:
 
 ## OpenClaw Dispatch Rules
 
-- Only tasks with `automation_allowed = true` or `status = ready for openclaw` may be dispatched automatically.
+- Only tasks with `automation_allowed = true` or a status/routing rule that makes them eligible for OpenClaw may be dispatched automatically.
+- The live bridge auto-picks `ready for openclaw` tasks, plus any rule-driven `autoPickStatuses`.
+- `triage`, `needs-human`, `needs-review`, and any task with `approval_required = true` stay out of auto-pick unless explicitly overridden by `automation_allowed = true`.
 - One active Workboard card per task in Bridge-managed automation.
 - Card creation and dispatch must be idempotent.
-- Every successful handoff should write a `workboard_id`, and runtime sync should write `run_id` once OpenClaw exposes it.
+- Every successful handoff writes a `workboard_id`, and runtime sync writes `run_id` as soon as Bridge can resolve it from the claim or Workboard payload.
 - Every finish or failure must write a terminal status comment back to ClickUp.
 
 ## Comments Strategy
