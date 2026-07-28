@@ -26,8 +26,6 @@ const payload: BridgeToWorkboardCard = {
     projectKey: "saint",
     workType: "backend",
     routingKey: "saint",
-    automationAllowed: true,
-    approvalRequired: false,
     priorityBucket: "high",
     repoUrl: "https://github.com/acme/widgets",
   },

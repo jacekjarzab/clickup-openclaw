@@ -133,28 +133,6 @@ export function createClickUpClient(options: ClickUpClientOptions) {
     async () => undefined);
   }
 
-  function parseBooleanField(value: unknown): boolean | undefined {
-    if (typeof value === "boolean") {
-      return value;
-    }
-
-    if (typeof value === "number") {
-      return value !== 0;
-    }
-
-    if (typeof value === "string") {
-      const normalized = value.trim().toLowerCase();
-      if (normalized === "true" || normalized === "yes" || normalized === "1") {
-        return true;
-      }
-      if (normalized === "false" || normalized === "no" || normalized === "0") {
-        return false;
-      }
-    }
-
-    return undefined;
-  }
-
 function parseNumberField(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -204,12 +182,6 @@ function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
           const designUrlField = body.custom_fields?.find((field) => field.id === "design_url");
           const workTypeField = body.custom_fields?.find((field) => field.id === "work_type");
           const projectKeyField = body.custom_fields?.find((field) => field.id === "project_key");
-          const automationAllowedField = body.custom_fields?.find(
-            (field) => field.id === "automation_allowed",
-          );
-          const approvalRequiredField = body.custom_fields?.find(
-            (field) => field.id === "approval_required",
-          );
           const triageReasonField = body.custom_fields?.find((field) => field.id === "triage_reason");
           const branchNameField = body.custom_fields?.find((field) => field.id === "branch_name");
           const commitShaField = body.custom_fields?.find((field) => field.id === "commit_sha");
@@ -223,8 +195,6 @@ function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
             listId: body.list?.id,
             projectKey: typeof projectKeyField?.value === "string" ? projectKeyField.value : undefined,
             workType: typeof workTypeField?.value === "string" ? workTypeField.value : undefined,
-            automationAllowed: parseBooleanField(automationAllowedField?.value),
-            approvalRequired: parseBooleanField(approvalRequiredField?.value),
             priorityBucket: parsePriorityBucket(body.priority),
             branchName: typeof branchNameField?.value === "string" ? branchNameField.value : undefined,
             commitSha: typeof commitShaField?.value === "string" ? commitShaField.value : undefined,

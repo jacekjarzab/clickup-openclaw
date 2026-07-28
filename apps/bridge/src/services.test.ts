@@ -287,6 +287,28 @@ test("ingestWebhook ignores duplicate webhook deliveries with the same idempoten
   assert.equal(services.state.getJob("task-dup")?.workboardCardId, "card-1");
 });
 
+test("ingestWebhook only auto-picks tasks whose status is ready for openclaw", async () => {
+  const state = new InMemoryStateStore();
+  const adapter = new FakeOpenClawWorkboardAdapter();
+  const services = createBridgeServices(buildConfig(), {
+    stateStore: state,
+    openClawWorkboard: adapter as never,
+  });
+
+  const result = await services.ingestWebhook({
+    event: "taskUpdated",
+    taskId: "task-manual",
+    status: "in progress",
+    updatedAt: "2026-07-23T10:00:00.000Z",
+  });
+
+  assert.deepEqual(result, { accepted: true, duplicate: false });
+  assert.equal(adapter.created.length, 0);
+  assert.equal(adapter.dispatched.length, 0);
+  assert.equal(services.state.getJob("task-manual")?.state, "normalized");
+  assert.equal(services.state.getJob("task-manual")?.bridgeState, "received");
+});
+
 test("ingestWebhook prefers the most specific project routing rule", async () => {
   const state = new InMemoryStateStore();
   const adapter = new FakeOpenClawWorkboardAdapter();

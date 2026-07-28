@@ -69,8 +69,6 @@ type ArtifactLinks = {
 type ProjectRoutingRule = ArtifactLinks & {
   matchStatuses: string[] | undefined;
   matchListIds: string[] | undefined;
-  autoPickStatuses: string[] | undefined;
-  approvalRequired: boolean | undefined;
   workType: string | undefined;
   priorityBucket: PriorityBucket | undefined;
   priorityBoost: number | undefined;
@@ -266,52 +264,6 @@ function extractPayloadProjectKey(payload: Record<string, unknown> | undefined):
   return readString(payload.projectKey) ?? readString(payload.project_key) ?? readString(payload.clientKey);
 }
 
-function extractPayloadApprovalRequired(payload: Record<string, unknown> | undefined): boolean | undefined {
-  if (payload === undefined) {
-    return undefined;
-  }
-
-  const candidate = payload.approvalRequired ?? payload.approval_required;
-  if (typeof candidate === "boolean") {
-    return candidate;
-  }
-
-  if (typeof candidate === "string") {
-    const normalized = normalizeKey(candidate);
-    if (normalized === "true" || normalized === "yes" || normalized === "1") {
-      return true;
-    }
-    if (normalized === "false" || normalized === "no" || normalized === "0") {
-      return false;
-    }
-  }
-
-  return undefined;
-}
-
-function extractPayloadAutomationAllowed(payload: Record<string, unknown> | undefined): boolean | undefined {
-  if (payload === undefined) {
-    return undefined;
-  }
-
-  const candidate = payload.automationAllowed ?? payload.automation_allowed;
-  if (typeof candidate === "boolean") {
-    return candidate;
-  }
-
-  if (typeof candidate === "string") {
-    const normalized = normalizeKey(candidate);
-    if (normalized === "true" || normalized === "yes" || normalized === "1") {
-      return true;
-    }
-    if (normalized === "false" || normalized === "no" || normalized === "0") {
-      return false;
-    }
-  }
-
-  return undefined;
-}
-
 function scorePriorityBucket(bucket: PriorityBucket | undefined, boost = 0): number {
   return priorityBucketScore(bucket) + boost;
 }
@@ -435,8 +387,6 @@ function parseProjectRoutingRules(input: string | undefined): Record<string, Pro
     const nextRule: ProjectRoutingRule = {
       matchStatuses: readStringArray(rule.matchStatuses),
       matchListIds: readStringArray(rule.matchListIds),
-      autoPickStatuses: readStringArray(rule.autoPickStatuses),
-      approvalRequired: typeof rule.approvalRequired === "boolean" ? rule.approvalRequired : undefined,
       workType: readString(rule.workType),
       priorityBucket: parsePriorityBucket(rule.priorityBucket),
       priorityBoost:
@@ -539,32 +489,6 @@ function resolveRoutingRule(
   return resolveBestMatchingRule(input, routingRules);
 }
 
-function shouldAutoPickTask(input: {
-  status?: string | undefined;
-  automationAllowed?: boolean | undefined;
-  rule?: ProjectRoutingRule | undefined;
-  approvalRequired?: boolean | undefined;
-}): boolean {
-  if (input.automationAllowed === true) {
-    return true;
-  }
-
-  const normalizedStatus = normalizeStatus(input.status);
-  const rule = input.rule;
-
-  const statusEligible =
-    normalizedStatus === "ready for openclaw" ||
-    (rule?.autoPickStatuses?.map(normalizeKey) ?? []).includes(normalizedStatus);
-  const approvalRequired =
-    input.approvalRequired === true ||
-    rule?.approvalRequired === true ||
-    normalizedStatus === "triage" ||
-    normalizedStatus === "needs-human" ||
-    normalizedStatus === "needs-review";
-
-  return statusEligible && !approvalRequired;
-}
-
 function determinePriorityBucket(input: {
   clickupPriority?: string | undefined;
   taskBucket?: PriorityBucket | undefined;
@@ -621,9 +545,6 @@ function buildTaskWriteBackFields(
       | "routingKey"
       | "priority"
       | "priorityBucket"
-      | "automationAllowed"
-      | "approvalRequired"
-      | "autoPicked"
       | "triageReason"
       | "branchName"
       | "commitSha"
@@ -642,9 +563,6 @@ function buildTaskWriteBackFields(
     ...(task?.priority === undefined && task?.priorityBucket === undefined
       ? {}
       : { priority: task.priority ?? task.priorityBucket }),
-    ...(task?.automationAllowed === undefined ? {} : { automation_allowed: task.automationAllowed }),
-    ...(task?.approvalRequired === undefined ? {} : { approval_required: task.approvalRequired }),
-    ...(task?.autoPicked === undefined ? {} : { auto_picked: task.autoPicked }),
     ...(task?.triageReason === undefined ? {} : { triage_reason: task.triageReason }),
     ...(task?.branchName === undefined ? {} : { branch_name: task.branchName }),
     ...(task?.commitSha === undefined ? {} : { commit_sha: task.commitSha }),
@@ -1335,8 +1253,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         projectKey: job.task.projectKey,
         workType: job.task.workType,
         routingKey: job.task.routingKey,
-        automationAllowed: job.task.automationAllowed,
-        approvalRequired: job.task.approvalRequired,
         priorityBucket: job.task.priorityBucket,
         repoUrl: links.repoUrl,
         prUrl: links.prUrl,
@@ -2182,8 +2098,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
 
     const payloadRecord = input.payload;
     const payloadProjectKey = extractPayloadProjectKey(payloadRecord);
-    const payloadAutomationAllowed = extractPayloadAutomationAllowed(payloadRecord);
-    const payloadApprovalRequired = extractPayloadApprovalRequired(payloadRecord);
     const currentStatus = input.task.status ?? input.status ?? "unknown";
     const routing = resolveRoutingRule(
       {
@@ -2203,12 +2117,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
     );
     const projectKey =
       routing.projectKey ?? input.task.projectKey ?? payloadProjectKey ?? defaultProjectKey;
-    const automationAllowed = input.task.automationAllowed ?? payloadAutomationAllowed ?? undefined;
-    const approvalRequired =
-      input.task.approvalRequired ??
-      payloadApprovalRequired ??
-      (triage.rule?.holdForHuman === true ? true : undefined) ??
-      (normalizeStatus(currentStatus) === "triage" ? true : undefined);
     const workType = input.task.workType ?? routing.rule?.workType ?? defaultWorkType ?? undefined;
     const template = workType === undefined ? undefined : workTypeTemplates[workType];
     const templateText =
@@ -2240,13 +2148,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       clickupPriority: input.task.priority,
       routingRule: routing.rule,
     });
-    const autoPicked = shouldAutoPickTask({
-      status: currentStatus,
-      automationAllowed: automationAllowed ?? undefined,
-      rule: routing.rule,
-      approvalRequired,
-    });
-    const effectiveApprovalRequired = automationAllowed === true ? false : approvalRequired === true;
+    const eligibleByStatus = isEligibleForOpenClaw(currentStatus);
     const currentJob = state.getJob(input.task.id);
 
     state.upsertJob({
@@ -2259,9 +2161,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         routingKey: routing.projectKey,
         workType,
         priorityBucket,
-        automationAllowed,
-        approvalRequired: effectiveApprovalRequired,
-        autoPicked,
         priority: input.task.priority,
         description: input.task.description,
         repoUrl: links.repoUrl,
@@ -2276,15 +2175,10 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         designUrl: links.designUrl,
         triageReason,
       },
-      state:
-        autoPicked && effectiveApprovalRequired !== true
-          ? "eligible"
-          : isEligibleForOpenClaw(currentStatus)
-            ? "eligible"
-            : "normalized",
+      state: eligibleByStatus ? "eligible" : "normalized",
       bridgeState:
         preserveBridgeState(currentJob?.bridgeState) ??
-        (autoPicked || isEligibleForOpenClaw(currentStatus) ? "eligible" : "received"),
+        (eligibleByStatus ? "eligible" : "received"),
       claim: currentJob?.claim,
       handoffPayload: currentJob?.handoffPayload,
       workboardCardId: currentJob?.workboardCardId,
@@ -2504,8 +2398,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         return counts;
       }, {});
 
-    const autoPickedJobs = jobs.filter((job) => job.task.autoPicked === true).length;
-    const approvalRequiredJobs = jobs.filter((job) => job.task.approvalRequired === true).length;
     const succeededJobs = jobs.filter((job) => job.outcome === "succeeded").length;
     const failedJobs = jobs.filter((job) => job.outcome === "failed").length;
     const blockedJobs = jobs.filter((job) => job.outcome === "blocked").length;
@@ -2545,8 +2437,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       routingKeyCounts,
       priorityBucketCounts,
       blockedCategoryCounts,
-      autoPickedJobs,
-      approvalRequiredJobs,
       syncLagMs: oldestUnsyncedAgeMs,
       throughput: {
         terminalCards: terminalJobs.length,
@@ -2708,8 +2598,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         cardLifecycleCounts: metrics.cardLifecycleCounts,
         workTypeCounts: metrics.workTypeCounts,
         priorityBucketCounts: metrics.priorityBucketCounts,
-        autoPickedJobs: metrics.autoPickedJobs,
-        approvalRequiredJobs: metrics.approvalRequiredJobs,
         cards: activeCards,
         queuedItems,
       },
