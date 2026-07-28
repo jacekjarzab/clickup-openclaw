@@ -11,7 +11,7 @@ This is the living build checklist. Update it as we complete items and discover 
   - Task: one work item
   - Subtask: only for decomposed steps
   - Confirm the status + field mapping before broad sync
-- [x] Lock the automation-eligible task filter already agreed for Bridge
+- [x] Lock the status-based task filter already agreed for Bridge
 - [x] Define the ClickUp statuses Bridge may consume and write back
 - [x] Confirm the target approval status in ClickUp
 - [x] Verify the local OpenClaw Gateway and Workboard plugin runtime on the Bridge host
@@ -31,7 +31,7 @@ This is the living build checklist. Update it as we complete items and discover 
 ## Phase 2: Bridge to Workboard Handoff
 
 - [x] Create an OpenClaw adapter in Bridge using the local `openclaw workboard` CLI
-- [x] Automatically hand off only automation-eligible ClickUp tasks into Workboard card creation
+- [x] Automatically hand off only ClickUp tasks with status `ready for openclaw` into Workboard card creation
 - [x] Use a stable idempotency key derived from the ClickUp task id
 - [x] Persist the ClickUp task id to Workboard card id mapping
 - [x] Attach normalized task context to the card title, notes, labels, and priority
@@ -83,7 +83,8 @@ This is the living build checklist. Update it as we complete items and discover 
 - [x] Finalize the Bridge to Workboard card payload contract
 - [x] Freeze the required and optional fields in the payload schema
   - Required: `title`, `notes`, `status`, `priority`, `labels`, `idempotencyKey`
-  - Metadata: `sourceSystem`, `clickupTaskId`, `clickupStatus`, `projectKey`, `workType`, `routingKey`, `automationAllowed`, `approvalRequired`, `priorityBucket`, `repoUrl`, `prUrl`, `artifactUrl`, `docsUrl`, `designUrl`
+  - Metadata: `sourceSystem`, `clickupTaskId`, `clickupStatus`, `projectKey`, `workType`, `routingKey`, `priorityBucket`, `repoUrl`, `prUrl`, `artifactUrl`, `docsUrl`, `designUrl`
+  - Only `clickupStatus = ready for openclaw` drives pickup
   - Add schema tests for missing, empty, and extra fields
 - [x] Finalize the Workboard to ClickUp status mapping table
 - [x] Lock the status-to-status and status-to-automation-state mapping

@@ -33,8 +33,6 @@ Bridge owns orchestration state and OpenClaw owns execution state.
   - `projectKey`
   - `workType`
   - `routingKey`
-  - `automationAllowed`
-  - `approvalRequired`
   - `priorityBucket`
   - useful artifact links already known at handoff time
 - OpenClaw Workboard returns runtime truth:
@@ -73,7 +71,7 @@ Bridge owns orchestration state and OpenClaw owns execution state.
 1. ClickUp emits a webhook or the poller detects a change.
 2. Bridge API receives the event.
 3. Sync Service deduplicates it.
-4. Sync Service checks whether the task is automation-eligible.
+4. Sync Service checks whether the task status is `ready for openclaw`.
 5. Sync Service maps the task to a Bridge job record.
 6. OpenClaw Adapter creates the matching Workboard card once, then reuses the stored mapping on later syncs.
 7. OpenClaw Adapter triggers Workboard dispatch.
@@ -103,6 +101,8 @@ Workboard card statuses are tracked separately as `triage`, `backlog`, `todo`, `
 - `review` maps to ClickUp `approval` with `automation_state=done`
 - `blocked` maps to ClickUp `blocked` with `automation_state=blocked`
 - `done` maps to ClickUp `approval` with `automation_state=done`
+
+Only the ClickUp status drives pickup.
 
 Successful OpenClaw completion does not move ClickUp directly to `done` in v1.
 

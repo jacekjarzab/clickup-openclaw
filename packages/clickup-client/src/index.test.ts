@@ -27,7 +27,6 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
           { id: "design_url", value: "https://figma.com/file/widgets" },
           { id: "work_type", value: "feature" },
           { id: "project_key", value: "acme-web" },
-          { id: "automation_allowed", value: true },
           { id: "branch_name", value: "feature/widgets" },
           { id: "commit_sha", value: "abc123" },
           { id: "commit_url", value: "https://github.com/acme/widgets/commit/abc123" },
@@ -50,7 +49,6 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
     assert.equal(task.designUrl, "https://figma.com/file/widgets");
     assert.equal(task.workType, "feature");
     assert.equal(task.projectKey, "acme-web");
-    assert.equal(task.automationAllowed, true);
     assert.equal(task.priorityBucket, "high");
     assert.equal(task.branchName, "feature/widgets");
     assert.equal(task.commitSha, "abc123");
@@ -77,7 +75,6 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
     assert.equal(withoutRepo.designUrl, undefined);
     assert.equal(withoutRepo.workType, undefined);
     assert.equal(withoutRepo.projectKey, undefined);
-    assert.equal(withoutRepo.automationAllowed, undefined);
     assert.equal(withoutRepo.priorityBucket, "urgent");
   } finally {
     globalThis.fetch = originalFetch;
