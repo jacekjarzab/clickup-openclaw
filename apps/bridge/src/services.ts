@@ -489,12 +489,6 @@ function resolveRoutingRule(
   return resolveBestMatchingRule(input, routingRules);
 }
 
-function shouldAutoPickTask(input: {
-  status?: string | undefined;
-}): boolean {
-  return isEligibleForOpenClaw(input.status);
-}
-
 function determinePriorityBucket(input: {
   clickupPriority?: string | undefined;
   taskBucket?: PriorityBucket | undefined;
@@ -2154,7 +2148,7 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
       clickupPriority: input.task.priority,
       routingRule: routing.rule,
     });
-    const eligibleByStatus = shouldAutoPickTask({ status: currentStatus });
+    const eligibleByStatus = isEligibleForOpenClaw(currentStatus);
     const currentJob = state.getJob(input.task.id);
 
     state.upsertJob({
