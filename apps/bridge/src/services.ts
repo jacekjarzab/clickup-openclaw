@@ -502,11 +502,10 @@ function determinePriorityBucket(input: {
 }
 
 function buildGitDetailLines(
-  task: Pick<ClickUpTask, "branchName" | "commitSha" | "commitUrl" | "prNumber">,
+  task: Pick<ClickUpTask, "branchName" | "commitUrl" | "prNumber">,
 ): string[] {
   return [
     task.branchName === undefined ? undefined : `- Branch: ${task.branchName}`,
-    task.commitSha === undefined ? undefined : `- Commit: ${task.commitSha}`,
     task.commitUrl === undefined ? undefined : `- Commit URL: ${task.commitUrl}`,
     task.prNumber === undefined ? undefined : `- PR number: #${task.prNumber}`,
   ].filter((line): line is string => line !== undefined);
@@ -515,7 +514,7 @@ function buildGitDetailLines(
 function buildArtifactComment(
   summary: string,
   links: ArtifactLinks,
-  task?: Pick<ClickUpTask, "branchName" | "commitSha" | "commitUrl" | "prNumber">,
+  task?: Pick<ClickUpTask, "branchName" | "commitUrl" | "prNumber">,
 ): string {
   const lines = [summary];
   const linkLines = [
@@ -547,7 +546,6 @@ function buildTaskWriteBackFields(
       | "priorityBucket"
       | "triageReason"
       | "branchName"
-      | "commitSha"
       | "commitUrl"
       | "prNumber"
     >
@@ -565,7 +563,6 @@ function buildTaskWriteBackFields(
       : { priority: task.priority ?? task.priorityBucket }),
     ...(task?.triageReason === undefined ? {} : { triage_reason: task.triageReason }),
     ...(task?.branchName === undefined ? {} : { branch_name: task.branchName }),
-    ...(task?.commitSha === undefined ? {} : { commit_sha: task.commitSha }),
     ...(task?.commitUrl === undefined ? {} : { commit_url: task.commitUrl }),
     ...(task?.prNumber === undefined ? {} : { pr_number: task.prNumber }),
     ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
@@ -2166,7 +2163,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         repoUrl: links.repoUrl,
         prUrl: links.prUrl,
         branchName: input.task.branchName,
-        commitSha: input.task.commitSha,
         commitUrl: input.task.commitUrl,
         prNumber: input.task.prNumber,
         updatedAt: input.task.updatedAt,

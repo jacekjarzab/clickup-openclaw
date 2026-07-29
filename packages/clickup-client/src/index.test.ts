@@ -28,7 +28,6 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
           { id: "work_type", value: "feature" },
           { id: "project_key", value: "acme-web" },
           { id: "branch_name", value: "feature/widgets" },
-          { id: "commit_sha", value: "abc123" },
           { id: "commit_url", value: "https://github.com/acme/widgets/commit/abc123" },
           { id: "pr_number", value: 42 },
         ],
@@ -51,7 +50,6 @@ test("getTask maps repo_url, pr_url, artifact_url, docs_url, design_url, work_ty
     assert.equal(task.projectKey, "acme-web");
     assert.equal(task.priorityBucket, "high");
     assert.equal(task.branchName, "feature/widgets");
-    assert.equal(task.commitSha, "abc123");
     assert.equal(task.commitUrl, "https://github.com/acme/widgets/commit/abc123");
     assert.equal(task.prNumber, 42);
 

@@ -184,7 +184,6 @@ function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
           const projectKeyField = body.custom_fields?.find((field) => field.id === "project_key");
           const triageReasonField = body.custom_fields?.find((field) => field.id === "triage_reason");
           const branchNameField = body.custom_fields?.find((field) => field.id === "branch_name");
-          const commitShaField = body.custom_fields?.find((field) => field.id === "commit_sha");
           const commitUrlField = body.custom_fields?.find((field) => field.id === "commit_url");
           const prNumberField = body.custom_fields?.find((field) => field.id === "pr_number");
 
@@ -197,7 +196,6 @@ function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
             workType: typeof workTypeField?.value === "string" ? workTypeField.value : undefined,
             priorityBucket: parsePriorityBucket(body.priority),
             branchName: typeof branchNameField?.value === "string" ? branchNameField.value : undefined,
-            commitSha: typeof commitShaField?.value === "string" ? commitShaField.value : undefined,
             commitUrl: typeof commitUrlField?.value === "string" ? commitUrlField.value : undefined,
             prNumber: parseNumberField(prNumberField?.value),
             triageReason:

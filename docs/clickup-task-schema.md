@@ -73,8 +73,6 @@ Recommended task fields:
   - Short text explaining why a task was held or routed a certain way.
 - `branch_name`
   - Optional branch reference for code-related tasks.
-- `commit_sha`
-  - Optional commit SHA for code-related tasks.
 - `commit_url`
   - Optional commit URL for code-related tasks.
 - `pr_number`
