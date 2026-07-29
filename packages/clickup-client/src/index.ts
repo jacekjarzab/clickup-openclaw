@@ -133,19 +133,6 @@ export function createClickUpClient(options: ClickUpClientOptions) {
     async () => undefined);
   }
 
-function parseNumberField(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
-  return undefined;
-}
-
 function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -185,7 +172,6 @@ function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
           const triageReasonField = body.custom_fields?.find((field) => field.id === "triage_reason");
           const branchNameField = body.custom_fields?.find((field) => field.id === "branch_name");
           const commitUrlField = body.custom_fields?.find((field) => field.id === "commit_url");
-          const prNumberField = body.custom_fields?.find((field) => field.id === "pr_number");
 
           return {
             id: body.id,
@@ -197,7 +183,6 @@ function parsePriorityBucket(value: unknown): PriorityBucket | undefined {
             priorityBucket: parsePriorityBucket(body.priority),
             branchName: typeof branchNameField?.value === "string" ? branchNameField.value : undefined,
             commitUrl: typeof commitUrlField?.value === "string" ? commitUrlField.value : undefined,
-            prNumber: parseNumberField(prNumberField?.value),
             triageReason:
               typeof triageReasonField?.value === "string" ? triageReasonField.value : undefined,
             updatedAt: body.date_updated ?? body.updated_at,

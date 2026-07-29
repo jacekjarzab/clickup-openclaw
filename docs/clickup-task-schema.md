@@ -75,8 +75,6 @@ Recommended task fields:
   - Optional branch reference for code-related tasks.
 - `commit_url`
   - Optional commit URL for code-related tasks.
-- `pr_number`
-  - Optional PR number for code-related tasks.
 
 Bridge also carries a `source_system` metadata field in the Workboard payload, but that is not a ClickUp custom field.
 

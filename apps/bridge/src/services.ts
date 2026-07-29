@@ -502,19 +502,18 @@ function determinePriorityBucket(input: {
 }
 
 function buildGitDetailLines(
-  task: Pick<ClickUpTask, "branchName" | "commitUrl" | "prNumber">,
+  task: Pick<ClickUpTask, "branchName" | "commitUrl">,
 ): string[] {
   return [
     task.branchName === undefined ? undefined : `- Branch: ${task.branchName}`,
     task.commitUrl === undefined ? undefined : `- Commit URL: ${task.commitUrl}`,
-    task.prNumber === undefined ? undefined : `- PR number: #${task.prNumber}`,
   ].filter((line): line is string => line !== undefined);
 }
 
 function buildArtifactComment(
   summary: string,
   links: ArtifactLinks,
-  task?: Pick<ClickUpTask, "branchName" | "commitUrl" | "prNumber">,
+  task?: Pick<ClickUpTask, "branchName" | "commitUrl">,
 ): string {
   const lines = [summary];
   const linkLines = [
@@ -547,7 +546,6 @@ function buildTaskWriteBackFields(
       | "triageReason"
       | "branchName"
       | "commitUrl"
-      | "prNumber"
     >
   > | undefined,
   now: string,
@@ -564,7 +562,6 @@ function buildTaskWriteBackFields(
     ...(task?.triageReason === undefined ? {} : { triage_reason: task.triageReason }),
     ...(task?.branchName === undefined ? {} : { branch_name: task.branchName }),
     ...(task?.commitUrl === undefined ? {} : { commit_url: task.commitUrl }),
-    ...(task?.prNumber === undefined ? {} : { pr_number: task.prNumber }),
     ...(links.repoUrl === undefined ? {} : { repo_url: links.repoUrl }),
     ...(links.prUrl === undefined ? {} : { pr_url: links.prUrl }),
     ...(links.artifactUrl === undefined ? {} : { artifact_url: links.artifactUrl }),
@@ -2164,7 +2161,6 @@ export function createBridgeServices(config: BridgeConfig, dependencies: BridgeS
         prUrl: links.prUrl,
         branchName: input.task.branchName,
         commitUrl: input.task.commitUrl,
-        prNumber: input.task.prNumber,
         updatedAt: input.task.updatedAt,
         artifactUrl: links.artifactUrl,
         docsUrl: links.docsUrl,
